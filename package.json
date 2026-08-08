@@ -18,14 +18,11 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
-    "@chat-adapter/state-redis": "^4.34.0",
     "@github-tools/eve-extension": "^0.3.0",
-    "@resend/chat-sdk-adapter": "^0.2.2",
     "@t3-oss/env-core": "^0.13.11",
     "@vercel/blob": "^2.6.1",
     "@vercel/connect": "0.4.3",
     "ai": "^7.0.38",
-    "chat": "^4.34.0",
     "eve": "^0.31.3",
     "zod": "4.4.3"
   },

@@ -1,20 +1,20 @@
 ---
-description: "How to compose or revise the weekly digest email of a repository's open issues: subject line, grouping, one-line issue summaries, needs-attention and stale criteria, citation format, and the closing invitation to reply. Load when composing this week's digest or reworking a draft of it. Not for other emails, replies, or GitHub and Linear comments."
+description: "How to compose or revise the weekly digest of a repository's open issues, posted in Slack: opening line, grouping, one-line issue summaries, needs-attention and stale criteria, citation format, and the closing invitation to reply in the thread. Load when composing this week's digest or reworking a draft of it. Not for other Slack messages, replies, or GitHub and Linear comments."
 ---
 
 # Digest Format
 
-The weekly digest is one email a maintainer skims in their inbox. Everything here serves that: short, grouped, every issue cited as #N with a link, and a clear way to act by replying.
+The weekly digest is one Slack message a maintainer skims. Everything here serves that: short, grouped, every issue cited as #N with a link, and a clear way to act by replying in the thread.
 
 ## Before composing
 
 - Check the user's saved preferences first. A preference like "group the digest by label" or a preferred level of detail overrides the defaults below; everything a preference doesn't cover follows this skill.
 - Work only from issues fetched in this run. Never carry over counts, titles, or numbers from earlier context.
 
-## Subject line
+## Opening line
 
 - Name the repository and anchor the week: "Weekly issues digest: owner/repo" followed by the date, for example "Weekly issues digest: acme/widgets, June 22 2026".
-- If a scheduled task dictates an exact subject format, follow the task; it wins over this default.
+- If a scheduled task dictates an exact opening format, follow the task; it wins over this default.
 
 ## Structure
 
@@ -28,7 +28,7 @@ Default grouping, in this order:
 
 When the user prefers a different grouping (by label, by assignee, by milestone), use theirs and keep the needs-attention issues at the top of whatever group they land in, marked as such.
 
-Skip any group that would be empty rather than showing an empty heading. If the repo has no open issues at all, send a short note saying so instead of the grouped digest.
+Skip any group that would be empty rather than showing an empty heading. If the repo has no open issues at all, post a short note saying so instead of the grouped digest.
 
 ## What qualifies where
 
@@ -60,10 +60,10 @@ Example line: [#42](https://github.com/acme/widgets/issues/42) Crash on empty co
 
 ## Scannability
 
-- The reader is triaging their inbox. Group headings, one line per issue, no walls of text.
+- The reader is skimming a Slack message. Bold group names, one line per issue, no walls of text.
 - Keep the overview to one paragraph and each issue to one line. If an issue truly needs more, one extra clause beats a second paragraph.
-- Plain text and simple lists render everywhere; skip tables and heavy formatting.
+- Write plain Markdown; the channel converts it for Slack. Bold and links carry over, headings and tables have no Slack equivalent, so use bold group names and simple lists; nothing heavier.
 
 ## Closing
 
-End every digest by inviting the reader to reply to act, naming the concrete options: ask for detail on an issue, have you comment on one, or have you create Linear issues from it. Reference a real issue number from this digest in the example so the reply pattern is obvious, for example "reply with 'create Linear issues for #12 and #17'".
+End every digest by inviting the reader to reply in the thread to act, naming the concrete options: ask for detail on an issue, have you comment on one, or have you create Linear issues from it. Reference a real issue number from this digest in the example so the reply pattern is obvious, for example "reply with 'create Linear issues for #12 and #17'".

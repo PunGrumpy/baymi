@@ -2,7 +2,7 @@
 
 A GitHub maintainer agent built on the [eve](https://eve.dev) agent framework, ported from [`vercel-labs/kody-eve-template`](https://github.com/vercel-labs/kody-eve-template).
 
-Every Monday it emails a digest of a repository's open issues. Reply to that email to act on it ("create Linear issues for #1 and #2 and assign them to me") and it follows through, confirming with links. Between digests it comments a summary on newly opened pull requests, answers @mentions on GitHub issues and PRs, handles issues delegated to it in Linear Agent Sessions, and answers questions in Slack.
+Every Monday it posts a digest of a repository's open issues to a Slack channel. Reply in the thread to act on it ("create Linear issues for #1 and #2 and assign them to me") and it follows through, confirming with links. Between digests it comments a summary on newly opened pull requests, answers @mentions on GitHub issues and PRs, handles issues delegated to it in Linear Agent Sessions, and answers questions in Slack.
 
 For how it is put together, read [ARCHITECTURE.md](./ARCHITECTURE.md).
 
@@ -10,18 +10,16 @@ For how it is put together, read [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 | Surface | Route | How it is triggered |
 | --- | --- | --- |
-| Email | `/eve/v1/resend` | Inbound mail via Resend; the weekly digest starts the thread |
 | GitHub | `/eve/v1/github` | `@kody` from an owner, member, or collaborator; a newly opened PR |
 | Linear | `/eve/v1/linear` | An Agent Session: delegate an issue or mention the agent |
-| Slack | `/eve/v1/slack` | DM, @mention, or a follow-up in a thread it is already working in |
+| Slack | `/eve/v1/slack` | DM, @mention, a follow-up in a thread it is already working in, or a reply in the weekly digest thread |
 | HTTP | `/eve/v1/session` | Direct API, used by `eve dev` and for testing |
 
 ## Requirements
 
 - [Bun](https://bun.sh)
 - A Vercel account with the [Vercel CLI](https://vercel.com/docs/cli) authenticated (`vercel login`)
-- Resend, with a verified sending domain
-- Any Redis (email thread state)
+- An Anthropic API key, or a compatible gateway (`ANTHROPIC_BASE_URL`)
 
 ## Setup
 
@@ -33,7 +31,7 @@ vercel link
 vercel env pull
 ```
 
-`vercel env pull` writes `.env.local` with the project's variables and a short-lived OIDC token, which is what authenticates the model and Vercel Blob locally.
+`vercel env pull` writes `.env.local` with the project's variables and a short-lived OIDC token, which is what authenticates Vercel Blob locally.
 
 ### 2. Fill in the environment
 
@@ -51,11 +49,16 @@ vercel connect attach <uid> --triggers --trigger-path /eve/v1/github --yes
 
 Repeat for `linear` (`--trigger-path /eve/v1/linear`) and `slack` (`--trigger-path /eve/v1/slack`). The `detach` then `attach` pair is required because `create` provisions the trigger at Connect's default path, which eve does not serve. Put each connector's UID in the matching `GITHUB_CONNECTOR`, `LINEAR_CONNECTOR`, and `SLACK_CONNECTOR` variable.
 
+The Slack connector needs more than the defaults:
+
+- **Bot Scopes** `chat:write`, `im:write`, and `users:read.email`, for the `send_slack_dm` tool ("DM me a summary" from a Linear session).
+- **Trigger Event Types** `message.channels` and **Bot Scope** `channels:history` (plus `message.groups`/`groups:history` for private channels), so replies in the digest thread and other subscribed threads reach the agent without a re-mention.
+
 eve also ships guided flows (`bun x eve add channel/github`, `bun x eve add linear`, `bun x eve integration setup slack`) that do the same provisioning. They rewrite the channel file afterwards, which would discard the customizations in `agent/channels/`: the commenter trust gate and PR hook in `github.ts`, the requester context in `linear.ts`, and the subscription policy in `slack.ts`. Back those files up before running a guided flow, or use the manual sequence above.
 
-### 4. Point Resend at the agent
+### 4. Pick the digest channel
 
-In the Resend dashboard, add an inbound webhook for `email.received` targeting `https://<your-deployment>/eve/v1/resend`, and put its signing secret in `RESEND_WEBHOOK_SECRET`.
+Create (or choose) the Slack channel the weekly digest posts to, invite the bot to it, and put its conversation ID (Channel details → the `C…` ID) in `DIGEST_SLACK_CHANNEL`.
 
 ### 5. Deploy, then install the apps
 
@@ -71,7 +74,7 @@ Once deployed, open each connector in the Connect dashboard and install its app 
 bun run dev
 ```
 
-This runs the same runtime in a terminal UI. The webhook surfaces (GitHub, Linear, Slack, email) need a deployment to receive events, so use the TUI to exercise the agent directly. Schedules do not fire on cadence in dev; trigger the digest once with:
+This runs the same runtime in a terminal UI. The webhook surfaces (GitHub, Linear, Slack) need a deployment to receive events, so use the TUI to exercise the agent directly. Schedules do not fire on cadence in dev; trigger the digest once with:
 
 ```bash
 curl -X POST http://localhost:2000/eve/v1/dev/schedules/weekly-digest
@@ -86,6 +89,8 @@ curl -X POST http://localhost:2000/eve/v1/dev/schedules/weekly-digest
 | `bun run start` | Run a built bundle |
 | `bun run typecheck` | `tsc --noEmit` |
 | `bun run validate` | Typecheck and discovery diagnostics together |
+| `bun run check` | Ultracite lint and format check |
+| `bun run fix` | Ultracite autofix |
 | `bun x eve info` | Discovery diagnostics; must report 0 errors and 0 warnings |
 
 eve does not load `.env` during discovery, so pass it explicitly when running the CLI outside the dev TUI:
