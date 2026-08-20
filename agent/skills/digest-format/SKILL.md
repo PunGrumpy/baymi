@@ -28,7 +28,9 @@ Default grouping, in this order:
 
 When the user prefers a different grouping (by label, by assignee, by milestone), use theirs and keep the needs-attention issues at the top of whatever group they land in, marked as such.
 
-Skip any group that would be empty rather than showing an empty heading. If the repo has no open issues at all, post a short note saying so instead of the grouped digest.
+Skip any group that would be empty rather than showing an empty heading.
+
+An empty result is reported in as few words as it deserves, never apologised for and never padded to look like work. A repository with no open issues gets the opening line and one short sentence, and that is the whole digest. Do not add what did not happen ("nothing new came in", "nothing is waiting on anyone"), do not offer consolation work nobody asked for, and do not explain why there is nothing to say. Volume should track what there is to report, so a quiet week reads as quiet at a glance.
 
 ## What qualifies where
 
