@@ -1,4 +1,4 @@
-<img src="./public/logo.png" alt="" width="96" align="right">
+<img src="./brand/logo.png" alt="" width="96" align="right">
 
 # baymi
 

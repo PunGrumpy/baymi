@@ -1,10 +1,11 @@
-node_modules
 .env*
 .eve
 .github
 .next
-.output
 .nitro
+.output
+brand
 dist
 docs
 evals
+node_modules
