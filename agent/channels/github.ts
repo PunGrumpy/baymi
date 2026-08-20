@@ -2,6 +2,7 @@ import { connectGitHubCredentials } from "@vercel/connect/eve";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
+import { failureNotice } from "#lib/failure";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 
 /**
@@ -40,6 +41,26 @@ const PR_SUMMARY_TASK = [
 export default githubChannel({
   botName: BOT_NAME,
   credentials: connectGitHubCredentials(env.GITHUB_CONNECTOR),
+  events: {
+    async "session.failed"(event, channel) {
+      await channel.thread.post(
+        failureNotice(
+          "This session could not recover from an error",
+          "Send a new mention in this thread to start a fresh one.",
+          event
+        )
+      );
+    },
+    async "turn.failed"(event, channel) {
+      await channel.thread.post(
+        failureNotice(
+          "I hit an error working on this",
+          "Mention me again in this thread and I'll retry.",
+          event
+        )
+      );
+    },
+  },
   onComment: (ctx, comment) =>
     shouldDispatchComment(comment) ? { auth: defaultGitHubAuth(ctx) } : null,
   onPullRequest: (ctx, pullRequest) =>
