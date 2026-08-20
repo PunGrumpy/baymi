@@ -1,0 +1,72 @@
+name: Evals
+
+# Evals drive the agent against a live model, so every run costs real money.
+# The triggers are narrow on purpose: a pull request that changes the agent's
+# behavior, or a manual run against a candidate model.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model id to evaluate (defaults to the MODEL repository variable)
+        required: false
+        type: string
+      tag:
+        description: Tag filter
+        required: false
+        default: fast
+        type: string
+  pull_request:
+    paths:
+      - agent/instructions.md
+      - agent/instructions/**
+      - agent/skills/**
+      - agent/agent.ts
+      - agent/lib/env.ts
+      - evals/**
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    name: Run evals
+    # Drafts never spend model budget, and `skip-evals` is the escape hatch for
+    # a pull request that touched a watched path without changing behavior.
+    if: >
+      github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-evals'))
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+      DIGEST_REPOS: ${{ vars.DIGEST_REPOS }}
+      DIGEST_SLACK_CHANNEL: ${{ vars.DIGEST_SLACK_CHANNEL }}
+      EVAL_MODEL: ${{ vars.EVAL_MODEL }}
+      GITHUB_CONNECTOR: ${{ vars.GITHUB_CONNECTOR }}
+      MODEL: ${{ inputs.model || vars.MODEL }}
+      LINEAR_CONNECTOR: ${{ vars.LINEAR_CONNECTOR }}
+      SLACK_CONNECTOR: ${{ vars.SLACK_CONNECTOR }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      # `needs-connect` evals assert on calls that must reach Vercel Blob and
+      # the connectors, which CI has no token for. The default `fast` tag skips
+      # them, so an unauthenticated run reports a regression only when there is
+      # one.
+      - name: Run evals
+        run: bun run eval --strict --tag "${{ inputs.tag || 'fast' }}" --junit .eve/junit.xml
+
+      - name: Upload eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: .eve/evals/
+          if-no-files-found: ignore
