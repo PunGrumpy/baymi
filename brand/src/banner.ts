@@ -59,8 +59,30 @@ import { withRenderPage } from "./render-page.ts";
 const BRAND = new URL("../", import.meta.url);
 const FONTS = new URL("fonts/", BRAND).pathname;
 
-const WIDTH = 800;
-const HEIGHT = 213;
+/**
+ * The grid every position in this file is written in, and the factor the
+ * output is rendered at.
+ *
+ * @remarks
+ * The layout was tuned at 800x213 and the numbers below still read in those
+ * units, so they stay comparable to the design they came from. `SCALE` is what
+ * decides the size of the file that ships.
+ *
+ * It is 1.25 because the README serves the banner at `width="100%"`, and
+ * GitHub's markdown column is around a thousand pixels wide. At 800 the browser
+ * had to stretch the asset to fill it, which softened the type; at 1000 it does
+ * not. Going to 2 would cover retina as well, but a banner is not worth the
+ * four-times file it costs.
+ */
+const DESIGN_WIDTH = 800;
+const DESIGN_HEIGHT = 213;
+const SCALE = 1.25;
+
+/** Scales a design-grid measurement to the rendered image. */
+const px = (value: number) => Math.round(value * SCALE);
+
+const WIDTH = px(DESIGN_WIDTH);
+const HEIGHT = px(DESIGN_HEIGHT);
 const FPS = 12;
 const OUTPUT_FRAMES = 36;
 
@@ -290,7 +312,7 @@ const FADE =
       <stop offset="0.95" stop-color="${PAPER}" stop-opacity="0.72"/>
     </linearGradient>
   </defs>
-  <rect x="0" y="0" width="470" height="${HEIGHT}" fill="url(#fade)"/>
+  <rect x="0" y="0" width="${px(470)}" height="${HEIGHT}" fill="url(#fade)"/>
 </svg>`);
 
 /** Renders one run of text through sharp, at 72 dpi so points equal pixels. */
@@ -318,28 +340,28 @@ const typeLayers = async () => {
     textRun({
       file: "GeistPixel-Square.ttf",
       fill: MUTED,
-      font: "Geist Pixel Square 22",
+      font: `Geist Pixel Square ${22 * SCALE}`,
       text: WORDMARK,
     }),
     textRun({
       file: "Geist-SemiBold.ttf",
       fill: INK,
-      font: "Geist SemiBold 32",
+      font: `Geist SemiBold ${32 * SCALE}`,
       text: TAGLINE[0],
       tracking: -700,
     }),
     textRun({
       file: "Geist-SemiBold.ttf",
       fill: INK,
-      font: "Geist SemiBold 32",
+      font: `Geist SemiBold ${32 * SCALE}`,
       text: TAGLINE[1],
       tracking: -700,
     }),
   ]);
   return [
-    { input: markImage, left: 36, top: 40 },
-    { input: first, left: 36, top: 112 },
-    { input: second, left: 36, top: 152 },
+    { input: markImage, left: px(36), top: px(40) },
+    { input: first, left: px(36), top: px(112) },
+    { input: second, left: px(36), top: px(152) },
   ];
 };
 
@@ -358,10 +380,10 @@ const typeLayers = async () => {
  * was almost invisible. The glow over the eyes carries the life instead: it
  * covers a twelfth of the area and is smooth enough to quantise cheaply.
  */
-const LOGO_SIZE = 350;
-const LOGO_LEFT = 466;
-const LOGO_TOP = -70;
-const LOGO_FEATHER = 96;
+const LOGO_SIZE = px(350);
+const LOGO_LEFT = px(466);
+const LOGO_TOP = px(-70);
+const LOGO_FEATHER = px(96);
 
 const logoLayer = async () => {
   const top = LOGO_TOP;
@@ -448,13 +470,18 @@ const loopFrames = (rendered: Buffer[]) => {
  * but its dithering is not, and that alone is enough to mark every pixel as
  * changed.
  */
-const EYES = { height: 190, left: 526, top: 0, width: 230 };
+const EYES = {
+  height: px(190),
+  left: px(526),
+  top: 0,
+  width: px(230),
+};
 
 const eyeGlow = (index: number) => {
   const phase = (index / OUTPUT_FRAMES) * Math.PI * 2;
   const strength = (0.16 + 0.16 * (0.5 + 0.5 * Math.sin(phase))).toFixed(3);
-  const cx = 640 - EYES.left;
-  const cy = 97 - EYES.top;
+  const cx = px(640) - EYES.left;
+  const cy = px(97) - EYES.top;
   return {
     blend: "over" as const,
     input:
