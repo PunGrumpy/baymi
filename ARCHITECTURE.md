@@ -41,6 +41,7 @@ agent/
   extensions/
     github.ts               # @github-tools/eve-extension (maintainer preset); mounts as `github__<toolName>`; comments and labels skip approval, createIssue/closeIssue and everything else keep it
   tools/
+    git_push.ts               # pushes a sandbox branch; credential brokered at the firewall, main/master and unfollowed repos refused, withheld from unattended turns
     send_slack_dm.ts          # Slack DM by email lookup; dynamic, withheld from Slack sessions (lib/slack.ts) so a reply is never delivered twice
     get_user_preferences.ts   # Blob: load this user's saved preferences
     save_user_preferences.ts  # Blob: save standing preferences (principal-scoped)
@@ -57,11 +58,13 @@ agent/
     github/
       comments.ts           # bot name, mention pattern, ignore rules, and the dispatch decision for a comment
       issues.ts             # whether a new issue starts an unattended triage turn, and how a failed one is recognized
+      push.ts               # branch and repository validation, and the firewall policy that brokers the push credential
   skills/                   # load-on-demand procedures, routed by description frontmatter
     writing-quality/        # AI-tells, plain English, web-content specs
     digest-format/          # weekly digest structure: grouping, needs-attention/stale criteria, one-line summaries
     triaging-issues/        # triage playbook: dedupe, repo-native labels, ask-or-close, repro requests
     github-linear-bridging/ # bridged Linear issues: dedupe check, backlinks, team choice, two-way links
+    shipping-a-change/      # sandbox checkout to pull request: failing test first, the repo's own checks, honest PR body
 evals/                      # `eve eval`: scored checks against a live model, tagged fast / needs-connect
 docs/
   capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
