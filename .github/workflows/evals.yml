@@ -54,13 +54,35 @@ jobs:
         with:
           bun-version: latest
 
+      # The eve CLI runs on Node, not on Bun, and refuses anything below 24.
+      # The runner's default is older, so the eval step dies before it reads a
+      # single eval without this.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
       - run: bun install --frozen-lockfile
+
+      # Every variable is required and none has a fallback, so an unconfigured
+      # repository fails at discovery rather than at an assertion. That failure
+      # says nothing about the agent, so report it as a skip instead of a red
+      # check on a pull request that only touched a prompt.
+      - name: Check for model credentials
+        id: credentials
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$MODEL" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Evals skipped::ANTHROPIC_API_KEY or MODEL is not configured on this repository, so the suite cannot run."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # `needs-connect` evals assert on calls that must reach Vercel Blob and
       # the connectors, which CI has no token for. The default `fast` tag skips
       # them, so an unauthenticated run reports a regression only when there is
       # one.
       - name: Run evals
+        if: steps.credentials.outputs.configured == 'true'
         run: bun run eval --strict --tag "${{ inputs.tag || 'fast' }}" --junit .eve/junit.xml
 
       - name: Upload eval artifacts
