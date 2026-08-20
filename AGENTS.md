@@ -4,7 +4,7 @@ This project uses the eve framework. Before writing code, read the relevant guid
 
 Before implementing an integration yourself, use `eve registry search <query>` or `eve registry list` to discover available integrations. Inspect one with `eve registry view <item>`, then install it with `eve add <item>`.
 
-Before adding a capability (tool, connection, skill, schedule, subagent, instruction fragment), read `docs/capability-placement.md`. It decides where the capability lives and holds the two-layer rule: files under `agent/` are wiring, logic goes in `agent/lib/` with a colocated test. `ARCHITECTURE.md` is the map of what already exists.
+Before adding a capability (tool, connection, skill, schedule, subagent, instruction fragment), read `docs/capability-placement.md`. `docs/notes.md` collects the runtime and tooling behaviour that cost time to discover; read it before debugging something that looks impossible. It decides where the capability lives and holds the two-layer rule: files under `agent/` are wiring, logic goes in `agent/lib/` with a colocated test. `ARCHITECTURE.md` is the map of what already exists.
 
 Run `bun run test` for the unit tests. `bun run eval` drives the agent against a live model and costs real money, so run it deliberately, not as a check on every change.
 
