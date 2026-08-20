@@ -53,7 +53,9 @@ Nothing in CI runs it, because CI never installs this package. Run it here after
 
 ## banner.gif
 
-Baymi's own face, bled off the right edge, on a ground that drifts. 800x213, 36 frames at 12 fps, 341 KB.
+Baymi's own face, bled off the right edge, on a ground that drifts. 1000x266, 36 frames at 12 fps, 530 KB.
+
+Every position in `src/banner.ts` is written in an 800x213 grid, the one the layout was tuned in, and `SCALE` decides what it renders at. The README serves the banner at `width="100%"` and GitHub's markdown column is around a thousand pixels, so `SCALE` is `1.25`: at 800 the browser stretched the asset to fill the column and softened the type, and at 1000 it does not. Raising it to `2` would cover retina too, at four times the file, which a banner does not earn.
 
 The face is `logo.png` itself rather than anything redrawn. It runs off the right, top and bottom edges on purpose: only its left side lands inside the frame, so that is the only edge that has to be hidden, and one horizontal fade does it. Keying out the logo's own background is not an option here, because that background is a soft vignette running from `#dcdee0` to `#f4f5f4` and overlaps the white of the body itself.
 
