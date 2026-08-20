@@ -1,7 +1,7 @@
 import { connectLinearCredentials } from "@vercel/connect/eve";
 import { defaultLinearAuth, linearChannel } from "eve/channels/linear";
 
-import { env } from "#lib/env.js";
+import { env } from "#lib/env";
 
 /**
  * Linear channel: Agent Sessions in, Agent Activities out, via Vercel Connect.
@@ -24,7 +24,7 @@ export default linearChannel({
     const context: string[] = [];
     if (requester?.email) {
       context.push(
-        `The requesting user is ${requester.displayName ?? requester.name ?? "unknown"} (${requester.email}). When they ask for something by email, send it to that address unless they name another.`
+        `The requesting user is ${requester.displayName ?? requester.name ?? "unknown"} (${requester.email}). When they ask you to send them something, resolve that email to their Slack account with \`send_slack_dm\` unless they name someone else.`
       );
     }
     return { auth: defaultLinearAuth(event), context };

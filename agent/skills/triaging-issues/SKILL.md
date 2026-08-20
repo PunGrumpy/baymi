@@ -1,5 +1,5 @@
 ---
-description: "Playbook for triaging GitHub issues: checking for duplicates, applying the repo's existing labels, deciding whether to ask for a reproduction or close, and choosing when to act directly versus report back first. Load whenever asked to triage, label, dedupe, or close issues, whether the request came from a GitHub mention, an email reply, or a Linear delegation. Not needed for composing the weekly digest, answering general questions on a thread, or creating Linear issues."
+description: "Playbook for triaging GitHub issues: checking for duplicates, applying the repo's existing labels, deciding whether to ask for a reproduction or close, and choosing when to act directly versus report back first. Load whenever asked to triage, label, dedupe, or close issues, whether the request came from a GitHub mention, a Slack reply, or a Linear delegation. Not needed for composing the weekly digest, answering general questions on a thread, or creating Linear issues."
 ---
 
 # Triaging Issues
@@ -53,5 +53,5 @@ Who asked, and what they asked for, sets how much you do on your own.
 - When someone explicitly asked you to triage, do the reversible parts directly: comment, apply and correct labels, link duplicates. Then report what you did, issue by issue, with numbers and links.
 - Closing an issue is harder to walk back socially, even though it can be reopened. Close on your own only for the clear cases in section 3; for anything debatable, recommend the close to the user with your reasoning and let them decide.
 - For a large batch, share your plan in summary before executing ("I'd mark #3 and #7 as duplicates of #1, label #4 and #5 as bugs, and ask #9 for a repro") when the request left room for judgment.
-- When the request came by email or from Linear, the requester can't see the repo activity as it happens, so your reply must carry the full outcome: what you changed, what you asked, what you recommend, each with its issue number and link.
+- When the request came from Slack or Linear, the requester can't see the repo activity as it happens, so your reply must carry the full outcome: what you changed, what you asked, what you recommend, each with its issue number and link.
 - Never take a triage action on an issue nobody asked you about, even if you notice it needs one while working. Mention it to the user instead.
