@@ -1,7 +1,7 @@
 import { connectSlackCredentials } from "@vercel/connect/eve";
 import { slackChannel } from "eve/channels/slack";
 
-import { env } from "#lib/env.js";
+import { env } from "#lib/env";
 
 /**
  * Slack channel: @mentions, DMs, and follow-ups in threads the agent is already

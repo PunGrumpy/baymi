@@ -3,7 +3,7 @@ import { defineTool } from "eve/tools";
 import { always } from "eve/tools/approval";
 import { z } from "zod";
 
-import { userPreferencesKey } from "#lib/user-preferences.js";
+import { userPreferencesKey } from "#lib/user-preferences";
 
 /**
  * Tool that permanently deletes the current user's saved preferences.
