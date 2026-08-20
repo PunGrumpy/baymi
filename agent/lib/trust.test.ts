@@ -1,6 +1,11 @@
+import type { SessionAuthContext } from "eve/context";
 import { describe, expect, it } from "vitest";
 
-import { isTrustedGitHubAssociation } from "#lib/trust";
+import {
+  AUTONOMOUS_GITHUB_PRINCIPAL,
+  isAutonomous,
+  isTrustedGitHubAssociation,
+} from "#lib/trust";
 
 describe(isTrustedGitHubAssociation, () => {
   it("trusts the roles that carry repository write access", () => {
@@ -27,5 +32,29 @@ describe(isTrustedGitHubAssociation, () => {
 
   it("is case sensitive, matching GitHub's payload exactly", () => {
     expect(isTrustedGitHubAssociation("owner")).toBeFalsy();
+  });
+});
+
+const auth = (principalId: string): SessionAuthContext => ({
+  attributes: {},
+  authenticator: "github",
+  principalId,
+  principalType: "user",
+});
+
+describe(isAutonomous, () => {
+  it("recognizes the unattended triage principal", () => {
+    expect(isAutonomous(auth(AUTONOMOUS_GITHUB_PRINCIPAL))).toBeTruthy();
+  });
+
+  it("does not mistake a real GitHub actor for one", () => {
+    // Projected actors always carry a numeric id, so the constructed
+    // login-shaped principal cannot collide with a real account.
+    expect(isAutonomous(auth("github:12345"))).toBeFalsy();
+  });
+
+  it("treats an unauthenticated session as not autonomous", () => {
+    const missing: { readonly value?: SessionAuthContext | null } = {};
+    expect(isAutonomous(missing.value ?? null)).toBeFalsy();
   });
 });

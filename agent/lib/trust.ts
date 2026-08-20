@@ -1,3 +1,5 @@
+import type { SessionAuthContext } from "eve/context";
+
 /**
  * Who is allowed to drive the agent, expressed once.
  *
@@ -35,3 +37,27 @@ export const TRUSTED_GITHUB_ASSOCIATIONS: ReadonlySet<string> = new Set([
 export const isTrustedGitHubAssociation = (association: unknown): boolean =>
   typeof association === "string" &&
   TRUSTED_GITHUB_ASSOCIATIONS.has(association);
+
+/**
+ * The principal an unattended first-responder turn runs as.
+ *
+ * @remarks
+ * A turn started by a stranger's issue must not run as that stranger, and must
+ * not run as anyone the agent trusts either. It gets a constructed identity of
+ * its own, which every gate in the codebase can recognize and refuse. Real
+ * GitHub actors always carry a numeric `github:<id>`, so a login-shaped value
+ * here cannot collide with one.
+ */
+export const AUTONOMOUS_GITHUB_PRINCIPAL = "github:baymiai";
+
+/**
+ * Whether this session is an unattended turn triaging a new issue.
+ *
+ * @remarks
+ * Nobody asked for this turn and nobody is watching it, and the text that
+ * started it came from someone the repository has not trusted with anything.
+ * Capabilities that reach past the issue it is answering check this and
+ * withhold themselves.
+ */
+export const isAutonomous = (auth: SessionAuthContext | null): boolean =>
+  auth !== null && auth.principalId === AUTONOMOUS_GITHUB_PRINCIPAL;

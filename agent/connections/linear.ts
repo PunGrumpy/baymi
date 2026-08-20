@@ -1,7 +1,9 @@
 import { connect } from "@vercel/connect/eve";
 import { defineMcpClientConnection } from "eve/connections";
+import type { SessionContext } from "eve/context";
 
 import { env } from "#lib/env";
+import { isAutonomous } from "#lib/trust";
 
 /**
  * App-scoped Linear authorization via Vercel Connect.
@@ -12,13 +14,38 @@ import { env } from "#lib/env";
  * step by eve, and never exposed to the model. Export this if a tool ever needs
  * to call the Linear API directly and should share the same installation.
  */
-const linearAuth = connect({
-  connector: env.LINEAR_CONNECTOR,
-  principalType: "app",
-  tokenParams: {
-    scopes: ["read", "write", "issues:create", "comments:create"],
-  },
-});
+const grantLinearAuth = () =>
+  connect({
+    connector: env.LINEAR_CONNECTOR,
+    principalType: "app",
+    tokenParams: {
+      scopes: ["read", "write", "issues:create", "comments:create"],
+    },
+  });
+
+/**
+ * Linear is closed to unattended turns.
+ *
+ * @remarks
+ * A first-responder turn is driven by text from someone the repository has not
+ * trusted with anything, and Linear is where the team's own planning lives.
+ * Whatever that text talks the model into, it must not reach an internal
+ * tracker. The refusal is a thrown error rather than a missing credential, so
+ * the model is told no instead of being sent into an authorization challenge
+ * nobody is present to answer.
+ */
+const linearAuth = (ctx: SessionContext) => {
+  if (isAutonomous(ctx.session.auth.current)) {
+    return {
+      getToken: (): Promise<never> =>
+        Promise.reject(
+          new Error("Linear is not available on an unattended triage turn.")
+        ),
+      principalType: "app" as const,
+    };
+  }
+  return grantLinearAuth();
+};
 
 /**
  * The Linear surface the agent is allowed to reach, listed by name.

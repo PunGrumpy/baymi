@@ -22,6 +22,7 @@ agent/
   agent.ts                  # model configuration (defineAgent): compaction + session token limits
   instructions.md           # the always-on system prompt: identity, voice, how a task starts, grounding
   instructions/
+    first-responder.ts      # dynamic fragment: injected only on unattended triage turns; read plus one reply, nothing else
     github.ts               # dynamic fragment: mentions on issues/PRs, the opened-PR summary comment
     linear.ts               # dynamic fragment: Agent Sessions
     slack.ts                # dynamic fragment: answering in Slack, the weekly digest, digest thread replies
@@ -50,10 +51,12 @@ agent/
     env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
     instructions.ts         # loadsOnChannel: which system-prompt fragment a session sees
     slack.ts                # exposesSlackDmTool: which sessions see the DM tool
-    trust.ts                # authorization, expressed once: which GitHub author_associations are trusted
+    failure.ts              # the message a channel posts when a turn or session dies
+    trust.ts                # authorization, expressed once: trusted author_associations, and the unattended-triage principal
     user-preferences.ts     # principal-scoped Blob key + reserved-prefix guard (shared helper)
     github/
       comments.ts           # bot name, mention pattern, ignore rules, and the dispatch decision for a comment
+      issues.ts             # whether a new issue starts an unattended triage turn, and how a failed one is recognized
   skills/                   # load-on-demand procedures, routed by description frontmatter
     writing-quality/        # AI-tells, plain English, web-content specs
     digest-format/          # weekly digest structure: grouping, needs-attention/stale criteria, one-line summaries

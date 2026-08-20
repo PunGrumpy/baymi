@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { env } from "#lib/env";
 import { exposesSlackDmTool } from "#lib/slack";
+import { isAutonomous } from "#lib/trust";
 
 /**
  * App-scoped Slack authorization for sending messages outside a Slack session.
@@ -81,7 +82,8 @@ const outputSchema = z.object({
 export default defineDynamic({
   events: {
     "session.started": (_event, ctx) =>
-      exposesSlackDmTool(ctx.channel.kind)
+      exposesSlackDmTool(ctx.channel.kind) &&
+      !isAutonomous(ctx.session.auth.current)
         ? defineTool({
             description: DESCRIPTION,
             async execute({ email, message }, toolCtx) {

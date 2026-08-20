@@ -4,6 +4,8 @@ import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 import { env } from "#lib/env";
 import { failureNotice } from "#lib/failure";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
+import { isAutonomousTriageState, shouldTriageIssue } from "#lib/github/issues";
+import { AUTONOMOUS_GITHUB_PRINCIPAL, isAutonomous } from "#lib/trust";
 
 /**
  * Task injected into the session dispatched when a pull request opens. The
@@ -43,6 +45,11 @@ export default githubChannel({
   credentials: connectGitHubCredentials(env.GITHUB_CONNECTOR),
   events: {
     async "session.failed"(event, channel) {
+      // A failed triage stays quiet: the reporter did not ask for this turn
+      // and should not be handed the agent's error in their own issue.
+      if (isAutonomousTriageState(channel.state)) {
+        return;
+      }
       await channel.thread.post(
         failureNotice(
           "This session could not recover from an error",
@@ -51,7 +58,10 @@ export default githubChannel({
         )
       );
     },
-    async "turn.failed"(event, channel) {
+    async "turn.failed"(event, channel, ctx) {
+      if (isAutonomous(ctx.session.auth.current)) {
+        return;
+      }
       await channel.thread.post(
         failureNotice(
           "I hit an error working on this",
@@ -63,6 +73,16 @@ export default githubChannel({
   },
   onComment: (ctx, comment) =>
     shouldDispatchComment(comment) ? { auth: defaultGitHubAuth(ctx) } : null,
+  onIssue: (ctx, issue) =>
+    shouldTriageIssue(issue, ctx.sender.login, BOT_NAME)
+      ? {
+          auth: {
+            ...defaultGitHubAuth(ctx),
+            principalId: AUTONOMOUS_GITHUB_PRINCIPAL,
+            principalType: "service",
+          },
+        }
+      : null,
   onPullRequest: (ctx, pullRequest) =>
     pullRequest.action === "opened" && ctx.sender.type !== "Bot"
       ? { auth: defaultGitHubAuth(ctx), context: [PR_SUMMARY_TASK] }
