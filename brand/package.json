@@ -1,0 +1,27 @@
+{
+  "name": "@baymi/brand",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Baymi's logo, banner, and the scripts that generate them.",
+  "type": "module",
+  "exports": {
+    "./banner.gif": "./banner.gif",
+    "./banner.png": "./banner.png",
+    "./banner.shader-lab.json": "./banner.shader-lab.json",
+    "./logo.png": "./logo.png"
+  },
+  "scripts": {
+    "banner": "bun run src/banner.ts",
+    "banner:preview": "bun run src/banner.ts --preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@basementstudio/shader-lab": "3.0.0",
+    "@types/bun": "^1.3.14",
+    "gifenc": "^1.0.3",
+    "playwright-core": "^1.56.1",
+    "sharp": "^0.35.3",
+    "three": "^0.185.1",
+    "typescript": "^7.0.2"
+  }
+}
