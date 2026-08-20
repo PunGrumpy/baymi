@@ -19,13 +19,13 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.39",
+    "@ai-sdk/anthropic": "^4.0.40",
     "@github-tools/eve-extension": "^0.3.0",
     "@t3-oss/env-core": "^0.13.11",
     "@vercel/blob": "^2.6.1",
-    "@vercel/connect": "0.4.3",
-    "ai": "^7.0.38",
-    "eve": "^0.31.3",
+    "@vercel/connect": "0.8.0",
+    "ai": "^7.0.70",
+    "eve": "^0.40.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -33,11 +33,11 @@
     "eslint-plugin-github": "6.1.2",
     "eslint-plugin-sonarjs": "^4.2.0",
     "husky": "^9.1.7",
-    "oxfmt": "^0.62.0",
-    "oxlint": "^1.77.0",
+    "oxfmt": "^0.64.0",
+    "oxlint": "^1.79.0",
     "typescript": "^7",
-    "ultracite": "7.10.1",
-    "vitest": "^4.1.10"
+    "ultracite": "7.10.6",
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "ai": "^7.0.38"
