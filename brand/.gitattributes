@@ -1,0 +1,11 @@
+# Everything `src/banner.ts` writes. Marking them generated collapses them in
+# pull request diffs, which is the difference between a reviewable change and
+# 350 KB of binary noise, and stops git attempting a textual diff on them.
+banner.gif -diff linguist-generated
+banner.png -diff linguist-generated
+banner.shader-lab.json linguist-generated
+
+# Authored, not generated. `logo.png` is the master the banner is built from,
+# and the fonts are vendored upstream releases.
+logo.png -diff
+fonts/** -diff linguist-vendored

@@ -1,0 +1,4 @@
+node_modules
+
+# Written by `bun run banner:preview`, for looking at, not for committing.
+preview-*.png
