@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-reduced-motion: reduce)" srcset="./brand/banner.png">
-    <img src="./brand/banner.gif" width="800" alt="">
+    <img src="./brand/banner.gif" width="100%" alt="">
   </picture>
 </p>
 
