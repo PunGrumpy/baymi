@@ -6,6 +6,7 @@ import { env } from "#lib/env";
 import {
   pushBrokerPolicy,
   pushUrl,
+  resolveInstallationToken,
   validatePushBranch,
   validatePushRepo,
 } from "#lib/github/push";
@@ -67,8 +68,7 @@ export default defineDynamic({
                 success: false,
               };
             }
-            const resolved =
-              typeof token === "function" ? await token() : token;
+            const resolved = await resolveInstallationToken(token);
             await sandbox.setNetworkPolicy(pushBrokerPolicy(resolved));
             try {
               const push = await sandbox.run({

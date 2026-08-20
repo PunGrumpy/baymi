@@ -22,11 +22,21 @@ const slackAuth = connect({
 
 const SLACK_API = "https://slack.com/api";
 
-const slackCall = async (
+/**
+ * One Slack Web API call, parsed into the shape the caller asked for.
+ *
+ * @remarks
+ * The schema is a parameter rather than a cast at the call site so the response
+ * never reaches the tool body unparsed: a body Slack changed the shape of
+ * fails here, with the method name in the error, instead of surfacing as an
+ * undefined property three lines later.
+ */
+const slackCall = async <Payload>(
+  schema: z.ZodType<Payload>,
   token: string,
   method: string,
-  body: Record<string, unknown>
-): Promise<Record<string, unknown>> => {
+  body: Readonly<Record<string, string>>
+): Promise<Payload> => {
   const res = await fetch(`${SLACK_API}/${method}`, {
     body: JSON.stringify(body),
     headers: {
@@ -35,8 +45,40 @@ const slackCall = async (
     },
     method: "POST",
   });
-  return (await res.json()) as Record<string, unknown>;
+  return schema.parse(await res.json());
 };
+
+/**
+ * The failure envelope every Slack Web API method shares. `error` is the
+ * machine-readable reason, which is what gets handed back to the model.
+ */
+const slackFailure = z.object({
+  error: z.string().default("unknown_error"),
+  ok: z.literal(false),
+});
+
+/**
+ * Slack responses, parsed rather than asserted.
+ *
+ * @remarks
+ * A successful body must carry the id the next call needs, so a response that
+ * says `ok` without one fails here with a readable message instead of throwing
+ * on a property access three lines later.
+ */
+const memberLookup = z.union([
+  z.object({ ok: z.literal(true), user: z.object({ id: z.string() }) }),
+  slackFailure,
+]);
+
+const conversationOpen = z.union([
+  z.object({ channel: z.object({ id: z.string() }), ok: z.literal(true) }),
+  slackFailure,
+]);
+
+const messagePosted = z.union([
+  z.object({ ok: z.literal(true) }),
+  slackFailure,
+]);
 
 const DESCRIPTION =
   "Send a Slack direct message to a workspace member, looked up by their email address. " +
@@ -89,35 +131,41 @@ export default defineDynamic({
             async execute({ email, message }, toolCtx) {
               const { token } = await toolCtx.getToken(slackAuth);
 
-              const user = await slackCall(token, "users.lookupByEmail", {
-                email,
-              });
+              const user = await slackCall(
+                memberLookup,
+                token,
+                "users.lookupByEmail",
+                { email }
+              );
               if (!user.ok) {
                 return {
-                  error: `No Slack member found for ${email} (${String(user.error)}).`,
+                  error: `No Slack member found for ${email} (${user.error}).`,
                   success: false,
                 };
               }
-              const userId = (user.user as { id: string }).id;
 
-              const dm = await slackCall(token, "conversations.open", {
-                users: userId,
-              });
+              const dm = await slackCall(
+                conversationOpen,
+                token,
+                "conversations.open",
+                { users: user.user.id }
+              );
               if (!dm.ok) {
                 return {
-                  error: `Could not open a DM conversation (${String(dm.error)}).`,
+                  error: `Could not open a DM conversation (${dm.error}).`,
                   success: false,
                 };
               }
-              const channelId = (dm.channel as { id: string }).id;
 
-              const posted = await slackCall(token, "chat.postMessage", {
-                channel: channelId,
-                text: message,
-              });
+              const posted = await slackCall(
+                messagePosted,
+                token,
+                "chat.postMessage",
+                { channel: dm.channel.id, text: message }
+              );
               if (!posted.ok) {
                 return {
-                  error: `Message was not delivered (${String(posted.error)}).`,
+                  error: `Message was not delivered (${posted.error}).`,
                   success: false,
                 };
               }

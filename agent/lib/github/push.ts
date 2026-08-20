@@ -1,3 +1,4 @@
+import type { GitHubInstallationToken } from "eve/channels/github";
 import type { SandboxNetworkPolicy } from "eve/sandbox";
 
 const PROTECTED_BRANCHES: ReadonlySet<string> = new Set(["main", "master"]);
@@ -70,10 +71,11 @@ export const validatePushRepo = (
  * the header on the way out. A token placed in the environment or the command
  * line instead would be readable by anything the model chooses to run.
  */
-export const pushBrokerPolicy = (
-  installationToken: string
-): SandboxNetworkPolicy => {
+export const pushBrokerPolicy = (installationToken: string) => {
   const authorization = `Basic ${Buffer.from(`x-access-token:${installationToken}`).toString("base64")}`;
+  // `satisfies` rather than an annotation: the caller needs a
+  // `SandboxNetworkPolicy` and the test needs to read the host it wrote, and
+  // the policy type is a union wide enough to lose both.
   return {
     allow: {
       "*": [],
@@ -81,9 +83,24 @@ export const pushBrokerPolicy = (
         { transform: [{ headers: { Authorization: authorization } }] },
       ],
     },
-  };
+  } satisfies SandboxNetworkPolicy;
 };
 
 /** The remote a push is sent to, built from the repo rather than from git config. */
 export const pushUrl = (repo: string): string =>
   `https://github.com/${repo}.git`;
+
+/**
+ * The installation token as a string, whichever form the credential took.
+ *
+ * @remarks
+ * eve types the token as `string | (() => string | Promise<string>)` so that
+ * an integration can defer minting it, and Connect uses the deferred form. The
+ * union carries no tag, so the runtime type is the only thing that tells the
+ * two apart.
+ */
+export const resolveInstallationToken = async (
+  token: GitHubInstallationToken
+): Promise<string> =>
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- untagged SDK union
+  typeof token === "function" ? await token() : token;

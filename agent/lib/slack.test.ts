@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { exposesSlackDmTool } from "#lib/slack";
 
+/** A channel whose optional `kind` the runtime has not set. */
+interface PartialChannel {
+  readonly kind?: string;
+}
+
 describe(exposesSlackDmTool, () => {
   it("withholds the tool from a Slack session, which posts the reply itself", () => {
     expect(exposesSlackDmTool("slack")).toBeFalsy();
@@ -14,7 +19,7 @@ describe(exposesSlackDmTool, () => {
   });
 
   it("offers it when the channel kind is unknown", () => {
-    const channelWithoutKind: { readonly kind?: string } = {};
+    const channelWithoutKind: PartialChannel = {};
     expect(exposesSlackDmTool(channelWithoutKind.kind)).toBeTruthy();
   });
 });

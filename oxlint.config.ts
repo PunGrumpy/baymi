@@ -1,9 +1,10 @@
 import { defineConfig } from "oxlint";
+import antislop from "ultracite/oxlint/anti-slop";
 import core from "ultracite/oxlint/core";
 import vitest from "ultracite/oxlint/vitest";
 
 export default defineConfig({
-  extends: [core, vitest],
+  extends: [core, vitest, antislop],
   ignorePatterns: core.ignorePatterns,
   // eve docs, tools/overview: "The filename is the tool name the model sees."
   // Renaming these to kebab-case would rename the tools out from under the

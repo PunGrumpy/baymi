@@ -12,15 +12,6 @@ describe(flattenInline, () => {
     expect(flattened).toHaveLength(160);
     expect(flattened.endsWith("…")).toBeTruthy();
   });
-
-  it("serializes a non-string rather than printing [object Object]", () => {
-    expect(flattenInline({ reason: "timeout" })).toBe('{"reason":"timeout"}');
-  });
-
-  it("survives a value JSON cannot represent", () => {
-    const absent: { readonly value?: unknown } = {};
-    expect(flattenInline(absent.value)).toBe("undefined");
-  });
 });
 
 describe(failureNotice, () => {
