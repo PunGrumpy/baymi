@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const VALID_ENV: Record<string, string> = {
+const VALID_ENV = {
   ANTHROPIC_API_KEY: "test-token",
   ANTHROPIC_BASE_URL: "https://api.anthropic.com/v1",
   DIGEST_REPOS: "acme/widgets,acme/docs",

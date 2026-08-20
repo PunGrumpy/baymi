@@ -7,6 +7,16 @@ import {
   isTrustedGitHubAssociation,
 } from "#lib/trust";
 
+/** An issue payload with the optional fields GitHub can omit left off. */
+interface PartialIssuePayload {
+  readonly author_association?: string;
+}
+
+/** A session whose auth context has not been resolved yet. */
+interface PartialSession {
+  readonly auth?: SessionAuthContext | null;
+}
+
 describe(isTrustedGitHubAssociation, () => {
   it("trusts the roles that carry repository write access", () => {
     expect(isTrustedGitHubAssociation("OWNER")).toBeTruthy();
@@ -24,7 +34,7 @@ describe(isTrustedGitHubAssociation, () => {
   it("does not trust a missing or non-string association", () => {
     // How it actually arrives when GitHub omits the field: reading it off the
     // payload rather than passing a bare `undefined`, which the linter strips.
-    const payload: { readonly author_association?: unknown } = {};
+    const payload: PartialIssuePayload = {};
     expect(isTrustedGitHubAssociation(payload.author_association)).toBeFalsy();
     expect(isTrustedGitHubAssociation(null)).toBeFalsy();
     expect(isTrustedGitHubAssociation(1)).toBeFalsy();
@@ -54,7 +64,7 @@ describe(isAutonomous, () => {
   });
 
   it("treats an unauthenticated session as not autonomous", () => {
-    const missing: { readonly value?: SessionAuthContext | null } = {};
-    expect(isAutonomous(missing.value ?? null)).toBeFalsy();
+    const session: PartialSession = {};
+    expect(isAutonomous(session.auth ?? null)).toBeFalsy();
   });
 });

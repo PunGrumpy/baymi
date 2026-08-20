@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   pushBrokerPolicy,
   pushUrl,
+  resolveInstallationToken,
   validatePushBranch,
   validatePushRepo,
 } from "#lib/github/push";
@@ -74,21 +75,8 @@ describe(validatePushRepo, () => {
 
 describe(pushBrokerPolicy, () => {
   it("attaches the token to github.com and leaves other egress alone", () => {
-    const policy = pushBrokerPolicy("ghs_example");
-    if (
-      typeof policy === "string" ||
-      !policy.allow ||
-      Array.isArray(policy.allow)
-    ) {
-      throw new TypeError("expected a host-keyed policy object");
-    }
-    const allow: Record<
-      string,
-      { transform?: { headers?: Record<string, string> }[] }[]
-    > = policy.allow;
-    expect(
-      allow["github.com"]?.[0]?.transform?.[0]?.headers?.Authorization
-    ).toBe(
+    const { allow } = pushBrokerPolicy("ghs_example");
+    expect(allow["github.com"][0].transform[0].headers.Authorization).toBe(
       `Basic ${Buffer.from("x-access-token:ghs_example").toString("base64")}`
     );
     expect(allow["*"]).toStrictEqual([]);
@@ -106,5 +94,22 @@ describe(pushBrokerPolicy, () => {
 describe(pushUrl, () => {
   it("builds the remote from the repository, not from git config", () => {
     expect(pushUrl("acme/widgets")).toBe("https://github.com/acme/widgets.git");
+  });
+});
+
+describe(resolveInstallationToken, () => {
+  it("passes a pre-resolved token straight through", async () => {
+    await expect(resolveInstallationToken("ghs_example")).resolves.toBe(
+      "ghs_example"
+    );
+  });
+
+  it("calls the deferred form, which is what Connect supplies", async () => {
+    await expect(
+      resolveInstallationToken(() => Promise.resolve("ghs_minted"))
+    ).resolves.toBe("ghs_minted");
+    await expect(resolveInstallationToken(() => "ghs_sync")).resolves.toBe(
+      "ghs_sync"
+    );
   });
 });

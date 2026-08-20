@@ -1,3 +1,4 @@
+import type { GitHubComment } from "eve/channels/github";
 import type { SessionAuthContext } from "eve/context";
 
 /**
@@ -23,20 +24,31 @@ import type { SessionAuthContext } from "eve/context";
  * acknowledged without dispatching. On a public repo this is what stops an
  * arbitrary account from driving the agent's write tools.
  */
-export const TRUSTED_GITHUB_ASSOCIATIONS: ReadonlySet<string> = new Set([
-  "COLLABORATOR",
-  "MEMBER",
-  "OWNER",
-]);
+export const TRUSTED_GITHUB_ASSOCIATIONS: ReadonlySet<RawAuthorAssociation> =
+  new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
+
+/**
+ * `author_association` as it actually arrives, typed by the payload it is read
+ * off rather than by what GitHub documents.
+ *
+ * @remarks
+ * `raw` is an untyped JSON object, so the field can hold any JSON value and can
+ * be absent entirely. Widening the trusted set to the same type is what lets
+ * the check below be a plain lookup: a number, a null or a missing field simply
+ * is not in the set.
+ */
+type RawAuthorAssociation =
+  | GitHubComment["raw"]["author_association"]
+  | undefined;
 
 /**
  * Whether a GitHub `author_association` marks its author as trusted with the
  * repository. Anything that is not one of the trusted strings, including a
  * missing or non-string value, is untrusted.
  */
-export const isTrustedGitHubAssociation = (association: unknown): boolean =>
-  typeof association === "string" &&
-  TRUSTED_GITHUB_ASSOCIATIONS.has(association);
+export const isTrustedGitHubAssociation = (
+  association: RawAuthorAssociation
+): boolean => TRUSTED_GITHUB_ASSOCIATIONS.has(association);
 
 /**
  * The principal an unattended first-responder turn runs as.

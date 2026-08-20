@@ -12,18 +12,14 @@ interface FailureEvent {
 const DEFAULT_MAX_LENGTH = 160;
 
 /**
- * One line of a value, truncated. An error carries a stack or a provider
+ * One line of text, truncated. An error message carries a stack or a provider
  * payload often enough that posting it whole would flood the thread it is
  * apologizing in.
  */
 export const flattenInline = (
-  value: unknown,
+  text: string,
   max: number = DEFAULT_MAX_LENGTH
 ): string => {
-  const text =
-    typeof value === "string"
-      ? value
-      : (JSON.stringify(value) ?? String(value));
   const flat = text.replaceAll(/\s+/gu, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}…`;
 };
