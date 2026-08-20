@@ -1,16 +1,18 @@
-# github-maintainer
+<img src="./public/logo.png" alt="" width="96" align="right">
 
-A GitHub maintainer agent built on the [eve](https://eve.dev) agent framework, ported from [`vercel-labs/kody-eve-template`](https://github.com/vercel-labs/kody-eve-template).
+# baymi
+
+Baymi, a GitHub maintainer agent built on the [eve](https://eve.dev) agent framework, ported from [`vercel-labs/kody-eve-template`](https://github.com/vercel-labs/kody-eve-template).
 
 Every Monday it posts a digest of a repository's open issues to a Slack channel. Reply in the thread to act on it ("create Linear issues for #1 and #2 and assign them to me") and it follows through, confirming with links. Between digests it comments a summary on newly opened pull requests, answers @mentions on GitHub issues and PRs, handles issues delegated to it in Linear Agent Sessions, and answers questions in Slack.
 
-For how it is put together, read [ARCHITECTURE.md](./ARCHITECTURE.md).
+For how it is put together, read [ARCHITECTURE.md](./ARCHITECTURE.md). For where a new capability belongs, read [docs/capability-placement.md](./docs/capability-placement.md).
 
 ## Surfaces
 
 | Surface | Route | How it is triggered |
 | --- | --- | --- |
-| GitHub | `/eve/v1/github` | `@kody` from an owner, member, or collaborator; a newly opened PR |
+| GitHub | `/eve/v1/github` | `@baymiai` from an owner, member, or collaborator; a newly opened PR |
 | Linear | `/eve/v1/linear` | An Agent Session: delegate an issue or mention the agent |
 | Slack | `/eve/v1/slack` | DM, @mention, a follow-up in a thread it is already working in, or a reply in the weekly digest thread |
 | HTTP | `/eve/v1/session` | Direct API, used by `eve dev` and for testing |
@@ -19,7 +21,7 @@ For how it is put together, read [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 - [Bun](https://bun.sh)
 - A Vercel account with the [Vercel CLI](https://vercel.com/docs/cli) authenticated (`vercel login`)
-- An Anthropic API key, or a compatible gateway (`ANTHROPIC_BASE_URL`)
+- An Anthropic API key, or a token for any Anthropic-compatible endpoint set as `ANTHROPIC_BASE_URL`
 
 ## Setup
 
@@ -88,6 +90,8 @@ curl -X POST http://localhost:2000/eve/v1/dev/schedules/weekly-digest
 | `bun run build` | Build the deployment bundle |
 | `bun run start` | Run a built bundle |
 | `bun run typecheck` | `tsc --noEmit` |
+| `bun run test` | Vitest unit tests for the logic under `agent/lib/` |
+| `bun run eval` | `eve eval`: scored checks against a live model. Costs real money |
 | `bun run validate` | Typecheck and discovery diagnostics together |
 | `bun run check` | Ultracite lint and format check |
 | `bun run fix` | Ultracite autofix |

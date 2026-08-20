@@ -2,7 +2,7 @@ import { put } from "@vercel/blob";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
-import { userPreferencesKey } from "#lib/user-preferences.js";
+import { userPreferencesKey } from "#lib/user-preferences";
 
 /**
  * Maximum size of a user-preferences document, in characters.

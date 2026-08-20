@@ -2,7 +2,7 @@ import { list } from "@vercel/blob";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
-import { userPreferencesKey } from "#lib/user-preferences.js";
+import { userPreferencesKey } from "#lib/user-preferences";
 
 /**
  * Tool that loads the current user's saved style preferences from Vercel Blob.

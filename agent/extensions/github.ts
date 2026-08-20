@@ -1,6 +1,6 @@
 import githubExtension from "@github-tools/eve-extension";
 
-import { env } from "#lib/env.js";
+import { env } from "#lib/env";
 
 /**
  * GitHub tool set, mounted under the `github` namespace.
@@ -17,10 +17,19 @@ import { env } from "#lib/env.js";
  * installation token cannot use since GitHub grants gist access only to user
  * tokens, so those fail if the model reaches for them.
  *
- * Issue-conversation writes run without approval: they are reversible actions on
- * the configured repo, and the email surface cannot render an approval prompt,
- * so a gate there would strand the session. Everything else, `mergePullRequest`
- * and `createOrUpdateFile` included, keeps approval-by-default.
+ * Approval is decided by what a write leaves behind for someone else to find.
+ * Commenting and labelling run without it: they are the substance of answering
+ * a mention or working a triage pass, they are reversible in one click, and
+ * gating the reply the session exists to post would strand every GitHub
+ * thread. Creating and closing an issue do carry approval: both put something
+ * durable in front of the reporter, and both are worth a beat of confirmation.
+ * Everything else, `mergePullRequest` and `createOrUpdateFile` included, keeps
+ * approval-by-default.
+ *
+ * The earlier version of this list also waived approval on `createIssue` and
+ * `closeIssue`, on the grounds that the email surface could not render an
+ * approval prompt. Email is gone; Slack renders approval cards, and so do
+ * Linear and GitHub, so the exemption went with it.
  */
 export default githubExtension({
   connector: env.GITHUB_CONNECTOR,
@@ -28,8 +37,6 @@ export default githubExtension({
   requireApproval: {
     addIssueComment: "never",
     addLabels: "never",
-    closeIssue: "never",
-    createIssue: "never",
     removeLabel: "never",
   },
 });

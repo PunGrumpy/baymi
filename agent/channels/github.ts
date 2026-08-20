@@ -1,52 +1,11 @@
 import { connectGitHubCredentials } from "@vercel/connect/eve";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
-import type { GitHubComment } from "eve/channels/github";
 
-import { env } from "#lib/env.js";
-
-const BOT_NAME = "Kody";
-
-/**
- * Matches an `@Kody` mention on a word boundary, the same pattern the
- * channel's built-in comment gate uses. Kept in sync with {@link BOT_NAME}.
- */
-const MENTION_PATTERN = /@kody(?=$|[^A-Za-z0-9_-])/iu;
-
-/**
- * Commenter roles allowed to start a session by mentioning the agent.
- *
- * @remarks
- * GitHub's `author_association` on the comment payload. Anything outside this
- * set (CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, NONE, MANNEQUIN) is a user the
- * repo hasn't trusted with write access, so their mentions are acknowledged
- * without dispatching.
- */
-const TRUSTED_ASSOCIATIONS = new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
-
-/**
- * Replicates the channel's built-in ignore rules: eve's own marker comments,
- * bot authors, and the agent's own `kody[bot]` login.
- */
-const isIgnoredComment = (comment: GitHubComment): boolean => {
-  if (comment.body.includes("<!-- eve:github:")) {
-    return true;
-  }
-  const { author } = comment;
-  if (author === undefined) {
-    return false;
-  }
-  return (
-    author.type === "Bot" ||
-    author.login.toLowerCase() === `${BOT_NAME.toLowerCase()}[bot]`
-  );
-};
-
-const isTrustedCommenter = (comment: GitHubComment): boolean => {
-  const association = comment.raw.author_association;
-  return (
-    typeof association === "string" && TRUSTED_ASSOCIATIONS.has(association)
-  );
-};
+import { env } from "#lib/env";
+import { failureNotice } from "#lib/failure";
+import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
+import { isAutonomousTriageState, shouldTriageIssue } from "#lib/github/issues";
+import { AUTONOMOUS_GITHUB_PRINCIPAL, isAutonomous } from "#lib/trust";
 
 /**
  * Task injected into the session dispatched when a pull request opens. The
@@ -62,18 +21,18 @@ const PR_SUMMARY_TASK = [
 
 /**
  * GitHub channel: @mentions on issues and pull requests, answered in-thread as
- * "Kody", plus a summary comment on every newly opened pull request.
+ * `baymiai`, plus a summary comment on every newly opened pull request.
  *
  * @remarks
  * - Credentials are brokered by Vercel Connect. The connector UID comes from
  *   `GITHUB_CONNECTOR`; tokens are resolved per call and never exposed to the
  *   model.
- * - `onComment` replaces the built-in mention gate to add an authorization
- *   check: it keeps the default mention and ignore rules, then dispatches
- *   only when the commenter's `author_association` marks them as trusted with
- *   the repo (owner, member, or collaborator). Mentions from anyone else are
- *   acknowledged without a session, so arbitrary accounts on a public repo
- *   cannot drive the agent's write tools.
+ * - `onComment` replaces the built-in mention gate with
+ *   `shouldDispatchComment`, which keeps the default mention and ignore rules
+ *   and adds the authorization check from `agent/lib/trust.ts`: only a
+ *   commenter the repo trusts (owner, member, or collaborator) starts a
+ *   session. Mentions from anyone else are acknowledged without one, so
+ *   arbitrary accounts on a public repo cannot drive the agent's write tools.
  * - `onPullRequest` dispatches only on the `opened` action and skips PRs
  *   opened by bots (Dependabot and similar), so automated PRs don't each get
  *   a summary comment. It is deliberately not gated by `author_association`:
@@ -84,11 +43,45 @@ const PR_SUMMARY_TASK = [
 export default githubChannel({
   botName: BOT_NAME,
   credentials: connectGitHubCredentials(env.GITHUB_CONNECTOR),
+  events: {
+    async "session.failed"(event, channel) {
+      // A failed triage stays quiet: the reporter did not ask for this turn
+      // and should not be handed the agent's error in their own issue.
+      if (isAutonomousTriageState(channel.state)) {
+        return;
+      }
+      await channel.thread.post(
+        failureNotice(
+          "This session could not recover from an error",
+          "Send a new mention in this thread to start a fresh one.",
+          event
+        )
+      );
+    },
+    async "turn.failed"(event, channel, ctx) {
+      if (isAutonomous(ctx.session.auth.current)) {
+        return;
+      }
+      await channel.thread.post(
+        failureNotice(
+          "I hit an error working on this",
+          "Mention me again in this thread and I'll retry.",
+          event
+        )
+      );
+    },
+  },
   onComment: (ctx, comment) =>
-    !isIgnoredComment(comment) &&
-    MENTION_PATTERN.test(comment.body) &&
-    isTrustedCommenter(comment)
-      ? { auth: defaultGitHubAuth(ctx) }
+    shouldDispatchComment(comment) ? { auth: defaultGitHubAuth(ctx) } : null,
+  onIssue: (ctx, issue) =>
+    shouldTriageIssue(issue, ctx.sender.login, BOT_NAME)
+      ? {
+          auth: {
+            ...defaultGitHubAuth(ctx),
+            principalId: AUTONOMOUS_GITHUB_PRINCIPAL,
+            principalType: "service",
+          },
+        }
       : null,
   onPullRequest: (ctx, pullRequest) =>
     pullRequest.action === "opened" && ctx.sender.type !== "Bot"

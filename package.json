@@ -1,15 +1,17 @@
 {
-  "name": "github-maintainer",
+  "name": "baymi",
   "version": "0.0.0",
   "type": "module",
   "imports": {
-    "#*": "./agent/*",
-    "#evals/*": "./evals/*"
+    "#*": "./agent/*.js",
+    "#evals/*": "./evals/*.js"
   },
   "scripts": {
     "build": "eve build",
     "dev": "eve dev",
+    "eval": "eve eval",
     "start": "eve start",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "validate": "tsc --noEmit && eve info",
     "check": "ultracite check",
@@ -17,7 +19,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.36",
+    "@ai-sdk/anthropic": "^4.0.39",
     "@github-tools/eve-extension": "^0.3.0",
     "@t3-oss/env-core": "^0.13.11",
     "@vercel/blob": "^2.6.1",
@@ -34,7 +36,8 @@
     "oxfmt": "^0.62.0",
     "oxlint": "^1.77.0",
     "typescript": "^7",
-    "ultracite": "7.10.1"
+    "ultracite": "7.10.1",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "ai": "^7.0.38"
