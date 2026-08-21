@@ -28,9 +28,11 @@ A change ships from the sandbox checkout, never through the GitHub API. `createO
 
 6. **Push with `git_push`**, passing the branch and the `owner/repo`.
 
-7. **Open the pull request** with `github__createPullRequest`. Title states the change in the repository's commit convention. Load `writing-quality` before drafting the body: it is prose meant for a human reader and the same rules apply. The body says what the change does and why, what was checked, and what was not.
+7. **A visual change ships with visual evidence.** When the diff touches something rendered (a page under `apps/docs` or `apps/web`, a component, a style), load `before-after` and attach the comparison to the body.
 
-8. **Read CI back.** A pull request is not finished when it is open. Wait for the checks to settle, read them, and fix what is red before you report the pull request as ready. Announcing a pull request while a required check is failing costs the reviewer the review, and the title-validation job is the check your own title most often breaks. If a bot comment is noise the repository does not act on, say so once rather than chasing it.
+8. **Open the pull request** with `github__createPullRequest`. Title states the change in the repository's commit convention. Load `writing-quality` before drafting the body: it is prose meant for a human reader and the same rules apply. The body says what the change does and why, what was checked, and what was not.
+
+9. **Read CI back.** A pull request is not finished when it is open. Wait for the checks to settle, read them, and fix what is red before you report the pull request as ready. Announcing a pull request while a required check is failing costs the reviewer the review, and the title-validation job is the check your own title most often breaks. If a bot comment is noise the repository does not act on, say so once rather than chasing it.
 
 ## Being honest in the pull request
 

@@ -56,18 +56,20 @@ agent/
     clear_user_preferences.ts # Blob: clear this user's preferences (approval-gated)
   lib/                      # the only place logic lives; every module has a colocated *.test.ts
     digest.ts               # DIGEST_REPOS parsing and the per-repo digest prompt
-    anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL
-    env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
     drains.ts               # fan-out for wide events: one failing destination never takes the others, or the turn, with it
     usage.ts                # the turn event name, the MODEL_COST_PER_MTOK schema, the usage HogQL query and its parser, and the OpenRouter price lookup
     capture.ts              # which hosts may be captured, the capture command, the CLI's saved-path contract, and the comparison table
     schedule.ts             # the shared sweep preamble and the Slack delivery every maintenance schedule uses
+    anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL
+    env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
     instructions.ts         # loadsOnChannel: which system-prompt fragment a session sees
     slack.ts                # exposesSlackDmTool: which sessions see the DM tool
     failure.ts              # the message a channel posts when a turn or session dies
     trust.ts                # authorization, expressed once: trusted author_associations, the unattended-triage principal, and the schedule's app principal
     user-preferences.ts     # principal-scoped Blob key + reserved-prefix guard (shared helper)
     github/
+      approval.ts           # which GitHub writes need a card, decided from the session: unattended turns are refused, an attended turn's comment and labels run uncarded
+      tools.ts              # the 24 GitHub tools this agent mounts, reads and writes listed apart, and why the rest of the preset is not carried
       comments.ts           # bot name, mention pattern, ignore rules, and the dispatch decision for a comment
       issues.ts             # whether a new issue starts an unattended triage turn, and how a failed one is recognized
       push.ts               # branch and repository validation, and the firewall policy that brokers the push credential
@@ -77,16 +79,14 @@ agent/
     triaging-issues/        # triage playbook: dedupe, repo-native labels, ask-or-close, repro requests
     github-linear-bridging/ # bridged Linear issues: dedupe check, backlinks, team choice, two-way links
     shipping-a-change/      # sandbox checkout to pull request: failing test first, the repo's own checks, honest PR body
-evals/                      # `eve eval`: scored checks against a live model, tagged fast / needs-connect
-docs/
-  capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
-      approval.ts           # which GitHub writes need a card, decided from the session: unattended turns are refused, an attended turn's comment and labels run uncarded
     upstream-sync/          # the weekly upstream check: what shipped, what is worth taking, which workaround comes out with it
     self-review/            # the agent's own surface, in two halves: what drifted, and what is missing
     repo-health-sweep/      # the repository's prose against its code, its stated conventions, and issues that went quiet
     cost-watchdog/          # the weekly usage read: which numbers, against which week, and what to do when a number is missing
     before-after/           # visual evidence on a pull request: what before and after are, and the fallback when a preview is protected
-      tools.ts              # the 24 GitHub tools this agent mounts, reads and writes listed apart, and why the rest of the preset is not carried
+evals/                      # `eve eval`: scored checks against a live model, tagged fast / needs-connect
+docs/
+  capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
 ```
 
 ## Core components
@@ -97,12 +97,12 @@ docs/
 | Linear surface | `agent/channels/linear.ts` | Channel | Linear Agent Sessions: users delegate/mention the agent on an issue; the `onAgentSession` hook injects the requester's name and email as session context; elicitations render natively |
 | Slack surface | `agent/channels/slack.ts` | Channel | @mentions and DMs, plus follow-up messages in a thread that already has an active session (`isSubscribed()`); bot-authored messages are dropped. Thread continuation needs `message.channels`/`channels:history` on the connector; without them mentions still work |
 | Route auth | `agent/channels/eve.ts` | Channel | Inbound auth for the eve route; the `localDevUser` shim upgrades the dev principal to a user so user-scoped features work in the dev TUI |
-| Weekly digest | `agent/schedules/weekly-digest.ts` | Schedule | Cron `0 9 * * 1` (Mondays 09:00 UTC), handler form: `to(slack, { channelId })` starts the session on the Slack channel, so the digest is the session's final message and thread replies resume it; structure comes from the `digest-format` skill |
-| Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model loop and behavior; the root model id comes from `MODEL` and resolves through the provider in `agent/lib/anthropic.ts`, which speaks the Anthropic protocol against whatever `ANTHROPIC_BASE_URL` points at. `reasoning` and `modelContextWindowTokens` are set in `agent/agent.ts` alongside it, so a model swap is an environment change but a reasoning or context-window change is a code one. The root prompt is always on; the fragments under `agent/instructions/` resolve at `session.started` and load only on their own channel (and in full on the HTTP session surface) |
 | Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One evlog wide event per turn (`evlog/eve`), carrying identity, channel, tokens, tool executions and outcome, and no message content. Drains to the filesystem in `eve dev` and to PostHog as a `baymi_turn` event when `POSTHOG_API_KEY` is set. It is not a duplicate of eve's Agent Runs: the model answers through a gateway of the operator's choosing, so Vercel reports `costUsd: null` for every run and this is the only record the agent can read back |
 | Visual evidence | `agent/tools/capture_before_after.ts` + `agent/lib/capture.ts` + the `before-after` skill | Tool (dynamic) | Screenshots a page before and after a change and returns a markdown table of two public Blob URLs, for the body of a pull request against a repository that deploys a site (`logixlysia`, `docker-doctor`). The sandbox template carries `agent-browser` and the `@vercel/before-and-after` CLI that drives it; the `@agent-browser/eve` extension is deliberately **not** mounted, so no `browser__*` tool is carried in any prompt. Capture targets are limited to `*.vercel.app` and `localhost`, and hosting is this agent's own Blob store rather than the CLI's default public paste host |
 | Usage report | `agent/tools/usage_report.ts` + `agent/lib/usage.ts` | Tool (dynamic) | Reads those events back with one HogQL query, a row per day and model: turns, tokens, cost, failed turns. It returns two prices with them: the `MODEL_COST_PER_MTOK` the rows were costed at, and what OpenRouter publishes for `OPENROUTER_MODEL_SLUG` right now, read per run from the per-model endpoint (about a kilobyte, against a megabyte for the full catalogue) so a stale rate is reported rather than quietly applied. Resolved per turn, so it appears only where the PostHog key and project id are both configured, and never on an unattended triage turn |
 | Maintenance sweeps | `agent/schedules/{upstream-sync,self-review,repo-health-sweep,cost-watchdog}.ts` + `agent/lib/schedule.ts` | Schedules | Four weekly passes the agent runs on its own clock, delivered to the digest Slack channel through `maintenanceRun`: Monday 07:00 UTC what moved upstream, Monday 10:00 UTC what last week cost, Wednesday 08:00 UTC its own surface, Friday 08:00 UTC the repository's documentation against its code. Each carries only a cadence and a one-line task; the procedure is the skill it names. They run under eve's app principal (`isScheduleAppAuth`), which is why a draft pull request from one skips the approval card: nobody is watching Slack when a sweep fires, so a card there parks the session instead of confirming anything |
+| Weekly digest | `agent/schedules/weekly-digest.ts` | Schedule | Cron `0 9 * * 1` (Mondays 09:00 UTC), handler form: `to(slack, { channelId })` starts the session on the Slack channel, so the digest is the session's final message and thread replies resume it; structure comes from the `digest-format` skill |
+| Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model loop and behavior; the root model id comes from `MODEL` and resolves through the provider in `agent/lib/anthropic.ts`, which speaks the Anthropic protocol against whatever `ANTHROPIC_BASE_URL` points at. `reasoning` and `modelContextWindowTokens` are set in `agent/agent.ts` alongside it, so a model swap is an environment change but a reasoning or context-window change is a code one. The root prompt is always on; the fragments under `agent/instructions/` resolve at `session.started` and load only on their own channel (and in full on the HTTP session surface) |
 | GitHub access | `agent/extensions/github.ts` + `agent/lib/github/tools.ts` | Extension | `@github-tools/eve-extension` via Vercel Connect, mounted under the `github` namespace so tools are exposed as `github__<toolName>`. An explicit `include` of 24 tools rather than the `maintainer` preset's 79: every tool is carried in the prompt on every turn, and the preset costs about 21,800 tokens against this list's 7,600, most of it capability no instruction or skill ever reaches for. Three of the omissions are tools the instructions forbid outright (`createOrUpdateFile`, `createLabel`, `createPullRequestReview`). Approval comes from `agent/lib/github/approval.ts`, which decides per session rather than per tool: an unattended triage turn is refused every write, and an attended turn skips the card only on comments and labels |
 | Linear access | `agent/connections/linear.ts` | Connection (MCP) | Create issues, comment, and cross-reference Linear; app-scoped auth via Vercel Connect (`linearAuth`, defined in the same file) |
 | Slack DM tool | `agent/tools/send_slack_dm.ts` | Tool (dynamic) | Sends a DM to a workspace member resolved by email (`users.lookupByEmail` → `conversations.open` → `chat.postMessage`), app-scoped via Connect; delivers summaries requested from other surfaces, mainly Linear sessions. Resolved at `session.started` and withheld from Slack sessions, the weekly digest included, so the agent cannot deliver the same message twice |
@@ -173,6 +173,7 @@ There is no application database.
 - Digest fan-out: `DIGEST_REPOS` takes any number of repositories, but they all post to one `DIGEST_SLACK_CHANNEL`, one thread each. Routing different repositories to different channels would mean a repo-to-channel map rather than a list. At a large number of repositories the channel gets noisy, and the alternative (one digest covering every repo) would need issues cited as `owner/repo#N` and a rewrite of the thread-reply rules.
 - Digest memory: tracking which issues were already reported (e.g. in Blob) so "new this week" is computed against the last digest rather than issue timestamps alone.
 - A deterministic style checker (e.g. a banned-words lint reading the `writing-quality` references) to complement model judgment on outgoing prose.
+- Mounting the `@agent-browser/eve` extension, which would add `browser__navigate` and friends to every prompt. The sandbox already carries the browser binary for `capture_before_after`, so the open question is only whether the agent should be able to _drive_ a page rather than capture one: worth it the day a rendering bug needs inspecting interactively, and not before, since the tools are carried whether or not a turn is about a browser.
 
 ## Glossary
 
