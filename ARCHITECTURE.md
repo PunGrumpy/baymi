@@ -35,7 +35,13 @@ agent/
     linear.ts               # Linear MCP server (mcp.linear.app); app-scoped auth via Vercel Connect; tools.allow list: reads plus save_issue/save_comment, no deletes or structural writes
   schedules/
     weekly-digest.ts        # cron "0 9 * * 1" (UTC), handler form: one to(slack) send per DIGEST_REPOS entry, each its own thread; structure comes from the digest-format skill
-  sandbox.ts                # sandbox backend (Vercel Sandbox)
+    upstream-sync.ts        # cron "0 7 * * 1": what moved in eve, Connect, the GitHub extension; procedure in the upstream-sync skill
+    self-review.ts          # cron "0 8 * * 3": the agent's own surface, coherence and reach; procedure in the self-review skill
+    repo-health-sweep.ts    # cron "0 8 * * 5": documentation against code, conventions, quiet issues; procedure in the repo-health-sweep skill
+    cost-watchdog.ts        # cron "0 10 * * 1": last week's turns, tokens and cost, read back from the wide events
+  hooks/
+    evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
+  sandbox.ts                # sandbox backend (Vercel Sandbox); bootstrap marks /workspace git-safe and installs agent-browser + the before-and-after CLI
   subagents/
     researcher/             # agent.ts + instructions.md; fresh-context web researcher (web tools only)
   extensions/
@@ -50,6 +56,10 @@ agent/
     digest.ts               # DIGEST_REPOS parsing and the per-repo digest prompt
     anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL
     env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
+    drains.ts               # fan-out for wide events: one failing destination never takes the others, or the turn, with it
+    usage.ts                # the turn event name, the MODEL_COST_PER_MTOK schema, the usage HogQL query and its parser, and the OpenRouter price lookup
+    capture.ts              # which hosts may be captured, the capture command, the CLI's saved-path contract, and the comparison table
+    schedule.ts             # the shared sweep preamble and the Slack delivery every maintenance schedule uses
     instructions.ts         # loadsOnChannel: which system-prompt fragment a session sees
     slack.ts                # exposesSlackDmTool: which sessions see the DM tool
     failure.ts              # the message a channel posts when a turn or session dies
@@ -69,6 +79,11 @@ evals/                      # `eve eval`: scored checks against a live model, ta
 docs/
   capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
       approval.ts           # which GitHub writes need a card, decided from the session: unattended turns are refused, an attended turn's comment and labels run uncarded
+    upstream-sync/          # the weekly upstream check: what shipped, what is worth taking, which workaround comes out with it
+    self-review/            # the agent's own surface, in two halves: what drifted, and what is missing
+    repo-health-sweep/      # the repository's prose against its code, its stated conventions, and issues that went quiet
+    cost-watchdog/          # the weekly usage read: which numbers, against which week, and what to do when a number is missing
+    before-after/           # visual evidence on a pull request: what before and after are, and the fallback when a preview is protected
       tools.ts              # the 24 GitHub tools this agent mounts, reads and writes listed apart, and why the rest of the preset is not carried
 ```
 
@@ -82,11 +97,15 @@ docs/
 | Route auth | `agent/channels/eve.ts` | Channel | Inbound auth for the eve route; the `localDevUser` shim upgrades the dev principal to a user so user-scoped features work in the dev TUI |
 | Weekly digest | `agent/schedules/weekly-digest.ts` | Schedule | Cron `0 9 * * 1` (Mondays 09:00 UTC), handler form: `to(slack, { channelId })` starts the session on the Slack channel, so the digest is the session's final message and thread replies resume it; structure comes from the `digest-format` skill |
 | Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model loop and behavior; the root model id comes from `MODEL` and resolves through the provider in `agent/lib/anthropic.ts`, which speaks the Anthropic protocol against whatever `ANTHROPIC_BASE_URL` points at. `reasoning` and `modelContextWindowTokens` are set in `agent/agent.ts` alongside it, so a model swap is an environment change but a reasoning or context-window change is a code one. The root prompt is always on; the fragments under `agent/instructions/` resolve at `session.started` and load only on their own channel (and in full on the HTTP session surface) |
+| Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One evlog wide event per turn (`evlog/eve`), carrying identity, channel, tokens, tool executions and outcome, and no message content. Drains to the filesystem in `eve dev` and to PostHog as a `baymi_turn` event when `POSTHOG_API_KEY` is set. It is not a duplicate of eve's Agent Runs: the model answers through a gateway of the operator's choosing, so Vercel reports `costUsd: null` for every run and this is the only record the agent can read back |
+| Visual evidence | `agent/tools/capture_before_after.ts` + `agent/lib/capture.ts` + the `before-after` skill | Tool (dynamic) | Screenshots a page before and after a change and returns a markdown table of two public Blob URLs, for the body of a pull request against a repository that deploys a site (`logixlysia`, `docker-doctor`). The sandbox template carries `agent-browser` and the `@vercel/before-and-after` CLI that drives it; the `@agent-browser/eve` extension is deliberately **not** mounted, so no `browser__*` tool is carried in any prompt. Capture targets are limited to `*.vercel.app` and `localhost`, and hosting is this agent's own Blob store rather than the CLI's default public paste host |
+| Usage report | `agent/tools/usage_report.ts` + `agent/lib/usage.ts` | Tool (dynamic) | Reads those events back with one HogQL query, a row per day and model: turns, tokens, cost, failed turns. It returns two prices with them: the `MODEL_COST_PER_MTOK` the rows were costed at, and what OpenRouter publishes for `OPENROUTER_MODEL_SLUG` right now, read per run from the per-model endpoint (about a kilobyte, against a megabyte for the full catalogue) so a stale rate is reported rather than quietly applied. Resolved per turn, so it appears only where the PostHog key and project id are both configured, and never on an unattended triage turn |
+| Maintenance sweeps | `agent/schedules/{upstream-sync,self-review,repo-health-sweep,cost-watchdog}.ts` + `agent/lib/schedule.ts` | Schedules | Four weekly passes the agent runs on its own clock, delivered to the digest Slack channel through `maintenanceRun`: Monday 07:00 UTC what moved upstream, Monday 10:00 UTC what last week cost, Wednesday 08:00 UTC its own surface, Friday 08:00 UTC the repository's documentation against its code. Each carries only a cadence and a one-line task; the procedure is the skill it names. They run under eve's app principal (`isScheduleAppAuth`), which is why a draft pull request from one skips the approval card: nobody is watching Slack when a sweep fires, so a card there parks the session instead of confirming anything |
 | GitHub access | `agent/extensions/github.ts` + `agent/lib/github/tools.ts` | Extension | `@github-tools/eve-extension` via Vercel Connect, mounted under the `github` namespace so tools are exposed as `github__<toolName>`. An explicit `include` of 24 tools rather than the `maintainer` preset's 79: every tool is carried in the prompt on every turn, and the preset costs about 21,800 tokens against this list's 7,600, most of it capability no instruction or skill ever reaches for. Three of the omissions are tools the instructions forbid outright (`createOrUpdateFile`, `createLabel`, `createPullRequestReview`). Approval comes from `agent/lib/github/approval.ts`, which decides per session rather than per tool: an unattended triage turn is refused every write, and an attended turn skips the card only on comments and labels |
 | Linear access | `agent/connections/linear.ts` | Connection (MCP) | Create issues, comment, and cross-reference Linear; app-scoped auth via Vercel Connect (`linearAuth`, defined in the same file) |
 | Slack DM tool | `agent/tools/send_slack_dm.ts` | Tool (dynamic) | Sends a DM to a workspace member resolved by email (`users.lookupByEmail` → `conversations.open` → `chat.postMessage`), app-scoped via Connect; delivers summaries requested from other surfaces, mainly Linear sessions. Resolved at `session.started` and withheld from Slack sessions, the weekly digest included, so the agent cannot deliver the same message twice |
 | User preferences | `agent/tools/{get,save,clear}_user_preferences.ts` + `agent/lib/user-preferences.ts` | Tools | Per-user standing preferences in Blob, keyed to the resolved principal (never model input) |
-| Skills | `agent/skills/` | Skill | Load-on-demand procedures: `writing-quality` (prose rules, loaded before drafting for humans), `digest-format` (the weekly digest's structure and criteria), `triaging-issues` (the triage playbook), `github-linear-bridging` (bridged-issue conventions and cross-links) |
+| Skills | `agent/skills/` | Skill | Load-on-demand procedures: `writing-quality` (prose rules, loaded before drafting for humans), `digest-format` (the weekly digest's structure and criteria), `triaging-issues` (the triage playbook), `github-linear-bridging` (bridged-issue conventions and cross-links), `shipping-a-change` (checkout to pull request), and one per scheduled sweep (`upstream-sync`, `self-review`, `repo-health-sweep`) |
 | Researcher subagent | `agent/subagents/researcher/` | Subagent | Fresh-context web research for facts the repo and tracker don't hold; uses framework `web_search`/`web_fetch`, returns cited findings + gaps |
 
 Channels and the connections are I/O boundaries. Tools run in the app runtime (full `process.env`). Skills only add instructions to context; they are not an execution surface. The `researcher` subagent runs in its own isolated child session, fresh context with none of the root's skills, connections, or tools, so the root packs everything it needs into the call `message`.
@@ -100,10 +119,6 @@ Channels and the connections are I/O boundaries. Tools run in the app runtime (f
 5. **GitHub mentions:** `@baymiai` on an issue or PR starts a session on the github channel; the agent answers in-thread, cross-referencing Linear through the MCP connection when useful.
 6. **New issue from outside:** the `issues` webhook hits `onIssue`, which starts one unattended turn under the constructed service principal when the author is outside the repository. It reads, and its reply is the comment. Every write tool is refused on that turn (`agent/lib/github/approval.ts`), so an approval card can never be posted into a stranger's issue and park there.
 
-| Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One evlog wide event per turn (`evlog/eve`), carrying identity, channel, tokens, tool executions and outcome, and no message content. Drains to the filesystem in `eve dev` and to PostHog as a `baymi_turn` event when `POSTHOG_API_KEY` is set. It is not a duplicate of eve's Agent Runs: the model answers through a gateway of the operator's choosing, so Vercel reports `costUsd: null` for every run and this is the only record the agent can read back |
-| Visual evidence | `agent/tools/capture_before_after.ts` + `agent/lib/capture.ts` + the `before-after` skill | Tool (dynamic) | Screenshots a page before and after a change and returns a markdown table of two public Blob URLs, for the body of a pull request against a repository that deploys a site (`logixlysia`, `docker-doctor`). The sandbox template carries `agent-browser` and the `@vercel/before-and-after` CLI that drives it; the `@agent-browser/eve` extension is deliberately **not** mounted, so no `browser__*` tool is carried in any prompt. Capture targets are limited to `*.vercel.app` and `localhost`, and hosting is this agent's own Blob store rather than the CLI's default public paste host |
-| Usage report | `agent/tools/usage_report.ts` + `agent/lib/usage.ts` | Tool (dynamic) | Reads those events back with one HogQL query, a row per day and model: turns, tokens, cost, failed turns. It returns two prices with them: the `MODEL_COST_PER_MTOK` the rows were costed at, and what OpenRouter publishes for `OPENROUTER_MODEL_SLUG` right now, read per run from the per-model endpoint (about a kilobyte, against a megabyte for the full catalogue) so a stale rate is reported rather than quietly applied. Resolved per turn, so it appears only where the PostHog key and project id are both configured, and never on an unattended triage turn |
-| Maintenance sweeps | `agent/schedules/{upstream-sync,self-review,repo-health-sweep,cost-watchdog}.ts` + `agent/lib/schedule.ts` | Schedules | Four weekly passes the agent runs on its own clock, delivered to the digest Slack channel through `maintenanceRun`: Monday 07:00 UTC what moved upstream, Monday 10:00 UTC what last week cost, Wednesday 08:00 UTC its own surface, Friday 08:00 UTC the repository's documentation against its code. Each carries only a cadence and a one-line task; the procedure is the skill it names. They run under eve's app principal (`isScheduleAppAuth`), which is why a draft pull request from one skips the approval card: nobody is watching Slack when a sweep fires, so a card there parks the session instead of confirming anything |
 ## Data stores
 
 - **GitHub** (external): the repository and issue tracker the agent digests and triages. All access goes through `@github-tools/eve-extension` with credentials brokered by Vercel Connect; no token in code.
@@ -147,7 +162,8 @@ There is no application database.
 - **Runtime/TUI:** `bun run dev` (eve dev TUI; `/model` links a provider).
 - **Type checking:** `bun run typecheck` (tsc).
 - **Discovery diagnostics:** `bun x eve info` (must report 0 errors / 0 warnings), or `bun run validate` for typecheck + discovery together.
-- There is no unit-test suite; verify behavior in the dev TUI.
+- **Unit tests:** `bun run test` (vitest) over the colocated `*.test.ts` files under `agent/lib/`. Everything outside `agent/lib/` is wiring that eve boots, so it is verified by discovery and in the dev TUI rather than by a test.
+- **Evals:** `bun run eval` drives the agent against a live model and costs real money; run it deliberately, not as a check on every change.
 
 ## Future considerations
 
@@ -162,8 +178,8 @@ There is no application database.
 - **Channel:** an inbound/outbound surface. Here: GitHub, Linear, Slack, plus the eve route's auth config.
 - **Connection:** an external server (MCP/OpenAPI) exposed to the model; tools are called as `connection__<name>__<tool>`. Here: `linear`.
 - **Tool:** a typed action authored with `defineTool` (or mounted from an SDK, like the `github` tools), run in the app runtime.
-- **Schedule:** a cron-triggered session under `agent/schedules/`. Here: `weekly-digest`, a handler-form schedule that starts the digest session on the Slack channel.
-- **Skill:** a load-on-demand Markdown procedure; the packaged form requires `description` frontmatter used for routing. Here: `writing-quality`, `digest-format`, `triaging-issues`, and `github-linear-bridging`.
+- **Schedule:** a cron-triggered session under `agent/schedules/`. Here: `weekly-digest` plus the four maintenance sweeps, all handler-form schedules that start their session on the Slack channel.
+- **Skill:** a load-on-demand Markdown procedure; the packaged form requires `description` frontmatter used for routing. Nine of them live under `agent/skills/`, listed in the project structure above.
 - **Subagent:** a declared agent under `agent/subagents/<id>/` that the root delegates to as a tool. It runs in its own fresh child session and inherits none of the root's skills, connections, or tools, so the root passes context in the call `message`. Here: `researcher` (web research).
 - **Vercel Connect:** brokers OAuth/credentials for GitHub and Linear; connectors are identified by a UID.
 - **OIDC:** the project's Vercel identity token, used to authenticate Blob (and AI Gateway) without static keys.

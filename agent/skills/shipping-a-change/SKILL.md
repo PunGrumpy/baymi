@@ -14,7 +14,9 @@ A change ships from the sandbox checkout, never through the GitHub API. `createO
 
 ## The order
 
-1. **Read before writing.** The checkout is the real tree at the ref that triggered this session. Use `glob`, `grep` and `read_file` rather than the GitHub API: it is free, it is the code actually under discussion, and `grep` takes real expressions.
+1. **Read before writing.** On a turn that started on GitHub, the checkout is already the real tree at the ref that triggered it: use `glob`, `grep` and `read_file` rather than the GitHub API, because it is free, it is the code actually under discussion, and `grep` takes real expressions.
+
+   A turn that started anywhere else, a Slack reply or a scheduled sweep, has no checkout. Clone one before step 2: `git clone --depth 50 https://github.com/<owner>/<repo> /workspace/repo`, then `cd /workspace/repo` and install with the repository's own package manager. Everything below happens in there. The clone is worth it when a change has to be checked; for reading alone, `github__getFileContent` and `github__searchCode` answer in a second and cost nothing.
 
 2. **Branch.** Off the default branch, named for the change: `fix/digest-empty-state`, not `patch-1`.
 
