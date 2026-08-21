@@ -49,6 +49,8 @@ agent/
   tools/
     git_push.ts               # pushes a sandbox branch; credential brokered at the firewall, main/master and unfollowed repos refused, withheld from unattended turns
     send_slack_dm.ts          # Slack DM by email lookup; dynamic, withheld from Slack sessions (lib/slack.ts) so a reply is never delivered twice
+    usage_report.ts           # reads the agent's own turns back out of PostHog; dynamic, needs the PostHog key and project id, withheld from unattended turns
+    capture_before_after.ts   # screenshots two URLs in the sandbox, uploads both to Blob, returns the markdown table; host allow-list, withheld from unattended turns
     get_user_preferences.ts   # Blob: load this user's saved preferences
     save_user_preferences.ts  # Blob: save standing preferences (principal-scoped)
     clear_user_preferences.ts # Blob: clear this user's preferences (approval-gated)
