@@ -41,8 +41,8 @@ baymi   Created ENG-102 for #41 and ENG-103 for #38, both assigned to you.
 
 The digest is the loop Baymi is built around. It works the repository the rest of the week too:
 
-- **A pull request opens**: one orienting summary comment, so a reviewer knows what changed before opening the diff. Bots are skipped
 - **An @mention on an issue or pull request**: answered in the thread, if the commenter is an owner, member, or collaborator
+- **A new issue from someone outside the repository**: one unattended first reply, grounded in what the repo actually says, so a reporter is not left waiting. It reads and replies, and does nothing else. An issue a maintainer files is left alone
 - **An issue delegated to it in Linear**: worked as an Agent Session, and it can deliver the answer as a Slack direct message
 - **A question in Slack**: answered in the direct message, the mention, or a thread it is already working in
 

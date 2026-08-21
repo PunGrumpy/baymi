@@ -4,6 +4,8 @@ Things that cost time to find out. Each one is why some line of this agent, or o
 
 ## eve
 
+**The channel posts the turn's own message, so a comment tool posts a second one.** eve's GitHub channel installs a `message.completed` handler that posts any completed message into the thread the session is anchored to. A turn that answers by calling `github__addIssueComment` or `github__addPullRequestComment` therefore lands twice: the tool's comment, then the reply narrating that it posted the tool's comment. On PR #10 that produced three comments for one summary, and the write tool also raised an approval card the flow did not need, because the summary the session existed to post was gated as if it were an unasked-for write. Every GitHub instruction here now says the reply is the comment; the comment tools are for writing on some _other_ issue or pull request.
+
 **A failed queue delivery re-runs the turn, and side effects go with it.** A `TypeError: fetch failed` mid-turn produced this pair in the dev log:
 
 ```
