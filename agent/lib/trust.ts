@@ -73,3 +73,23 @@ export const AUTONOMOUS_GITHUB_PRINCIPAL = "github:baymiai";
  */
 export const isAutonomous = (auth: SessionAuthContext | null): boolean =>
   auth !== null && auth.principalId === AUTONOMOUS_GITHUB_PRINCIPAL;
+
+/**
+ * Whether this session was started by one of the agent's own schedules.
+ *
+ * @remarks
+ * eve stamps every schedule-dispatched turn with its app principal. That is
+ * not a person: a scheduled sweep runs while nobody is watching Slack, so a
+ * capability that would ask a human something has to decide what to do about
+ * that rather than assume someone is there to answer.
+ *
+ * It is not the unattended GitHub principal either. A sweep is work the
+ * maintainer configured and scheduled, and its input is this repository, not
+ * text a stranger wrote, so `isAutonomous` and this are deliberately separate
+ * questions with separate answers.
+ */
+export const isScheduleAppAuth = (auth: SessionAuthContext | null): boolean =>
+  auth !== null &&
+  auth.authenticator === "app" &&
+  auth.principalId === "eve:app" &&
+  auth.principalType === "runtime";
