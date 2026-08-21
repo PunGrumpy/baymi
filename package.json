@@ -19,6 +19,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@agent-browser/eve": "^0.34.0",
     "@ai-sdk/anthropic": "^4.0.40",
     "@github-tools/eve-extension": "^0.3.0",
     "@t3-oss/env-core": "^0.13.11",
@@ -26,6 +27,7 @@
     "@vercel/connect": "0.8.0",
     "ai": "^7.0.70",
     "eve": "^0.40.0",
+    "evlog": "^2.26.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
