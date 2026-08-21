@@ -19,6 +19,8 @@ The digest schedule dispatched two repositories and three digests arrived in Sla
 
 **A send with no thread never joins a continuation.** `receiveOnSlack` keys the session on a random UUID when `threadTs` is absent, so each `to(slack, ...)` lands in its own thread. The digest relies on this: one thread per repository is what keeps `#12` in a reply unambiguous.
 
+**A failed sandbox checkout is swallowed, and the turn runs against an empty tree.** `checkoutGitHubRepository` runs `git init` and then a short series of git commands in `/workspace`. When git answers `detected dubious ownership`, eve logs `GitHub checkout failed — swallowed` and continues, so nothing reaches the model or the thread: `read_file`, `glob` and `grep` simply find no files, and the agent reports the repository as empty rather than as unreachable. The error text ends with "Verify the GitHub App installation has access to this repository", which points at permissions when the cause is git refusing a directory another user owns. `agent/sandbox.ts` marks `/workspace` safe in bootstrap.
+
 **The CLI runs on Node, not on Bun, and refuses anything below 24.** Invoking it through `bun run` does not change that, so CI needs `actions/setup-node` alongside `setup-bun` or the eval job dies before reading an eval.
 
 ## Configuration
