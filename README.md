@@ -41,10 +41,21 @@ baymi   Created ENG-102 for #41 and ENG-103 for #38, both assigned to you.
 
 The digest is the loop Baymi is built around. It works the repository the rest of the week too:
 
-- **A pull request opens**: one orienting summary comment, so a reviewer knows what changed before opening the diff. Bots are skipped
 - **An @mention on an issue or pull request**: answered in the thread, if the commenter is an owner, member, or collaborator
+- **A new issue from someone outside the repository**: one unattended first reply, grounded in what the repo actually says, so a reporter is not left waiting. It reads and replies, and does nothing else. An issue a maintainer files is left alone
 - **An issue delegated to it in Linear**: worked as an Agent Session, and it can deliver the answer as a Slack direct message
 - **A question in Slack**: answered in the direct message, the mention, or a thread it is already working in
+
+Four more scheduled passes land in the same Slack channel during the week, each one a thread you can reply in:
+
+- **Monday 07:00 UTC, upstream check**: what moved in eve, Vercel Connect, and the GitHub tool set, what is worth taking, and which workaround in `docs/notes.md` their release made unnecessary
+- **Wednesday 08:00 UTC, self review**: the agent's own surface, in two halves — what has drifted out of coherence, and what capability is missing
+- **Friday 08:00 UTC, repository sweep**: the repo's documentation against the code it describes, its own stated conventions, and issues that went quiet
+- **Monday 10:00 UTC, cost watchdog**: last week's turns, tokens, and cost against the week before, read back from the agent's own wide events. Needs a PostHog project; without one the other three still run
+
+Each one reports in the thread and opens a draft pull request for the fixes it can carry through the repository's checks itself. Nothing merges without you.
+
+When a pull request it opens touches a page rather than code, it captures the deployed page and the branch's preview and puts the comparison in the body.
 
 ## Surfaces
 

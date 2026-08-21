@@ -30,6 +30,30 @@ describe("env", () => {
     vi.unstubAllEnvs();
   });
 
+  it("leaves the telemetry variables unset rather than defaulted", async () => {
+    // A fresh checkout has no PostHog project. The wide events are still
+    // recorded; what is absent is the destination and the weekly report, and
+    // a default here would point both at somebody else's project. Stubbed
+    // empty rather than omitted: `vi.stubEnv` leaves the rest of the real
+    // process environment in place, so a developer with these set in their
+    // own shell would otherwise fail this run.
+    const env = await loadEnv({
+      MODEL_COST_PER_MTOK: "",
+      POSTHOG_API_KEY: "",
+      POSTHOG_PERSONAL_API_KEY: "",
+    });
+    expect(env.POSTHOG_API_KEY).toBeUndefined();
+    expect(env.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    expect(env.MODEL_COST_PER_MTOK).toBeUndefined();
+  });
+
+  it("parses MODEL_COST_PER_MTOK into a price, not the raw string", async () => {
+    // The hook reads `.input` and `.output` off it; a plain string here
+    // type-checks against nothing and reaches evlog as an invalid cost map.
+    const env = await loadEnv({ MODEL_COST_PER_MTOK: "0.6,2.2" });
+    expect(env.MODEL_COST_PER_MTOK).toStrictEqual({ input: 0.6, output: 2.2 });
+  });
+
   it("parses DIGEST_REPOS into a list, not the raw string", async () => {
     const env = await loadEnv();
     // Guards the schedule's `for (const repo of env.DIGEST_REPOS)`: a plain

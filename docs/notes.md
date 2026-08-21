@@ -4,6 +4,8 @@ Things that cost time to find out. Each one is why some line of this agent, or o
 
 ## eve
 
+**The channel posts the turn's own message, so a comment tool posts a second one.** eve's GitHub channel installs a `message.completed` handler that posts any completed message into the thread the session is anchored to. A turn that answers by calling `github__addIssueComment` or `github__addPullRequestComment` therefore lands twice: the tool's comment, then the reply narrating that it posted the tool's comment. On PR #10 that produced three comments for one summary, and the write tool also raised an approval card the flow did not need, because the summary the session existed to post was gated as if it were an unasked-for write. Every GitHub instruction here now says the reply is the comment; the comment tools are for writing on some _other_ issue or pull request.
+
 **A failed queue delivery re-runs the turn, and side effects go with it.** A `TypeError: fetch failed` mid-turn produced this pair in the dev log:
 
 ```
@@ -22,6 +24,16 @@ The digest schedule dispatched two repositories and three digests arrived in Sla
 **A failed sandbox checkout is swallowed, and the turn runs against an empty tree.** `checkoutGitHubRepository` runs `git init` and then a short series of git commands in `/workspace`. When git answers `detected dubious ownership`, eve logs `GitHub checkout failed — swallowed` and continues, so nothing reaches the model or the thread: `read_file`, `glob` and `grep` simply find no files, and the agent reports the repository as empty rather than as unreachable. The error text ends with "Verify the GitHub App installation has access to this repository", which points at permissions when the cause is git refusing a directory another user owns. `agent/sandbox.ts` marks `/workspace` safe in bootstrap.
 
 **The CLI runs on Node, not on Bun, and refuses anything below 24.** Invoking it through `bun run` does not change that, so CI needs `actions/setup-node` alongside `setup-bun` or the eval job dies before reading an eval.
+
+**Vercel reports no cost for these runs, and the Agent Runs API is not a way around it.** `list_agent_run_projects` answers with `costUsd: null` and a per-project rollup; `list_agent_runs` needs access the project's own token does not necessarily carry. Both are downstream of the same fact: the model is reached through `ANTHROPIC_BASE_URL`, not through Vercel's AI Gateway, so nothing on the platform knows the price of a token here. That is why `agent/hooks/evlog.ts` exists and why `MODEL_COST_PER_MTOK` is configuration rather than a lookup.
+
+**`recordShape: 'compact'` writes literally dotted property names, which is what the usage query depends on.** Verified against the project on 2026-08-21 with a `baymi_selftest` event: PostHog stored `eve.caller.principalId` as one property name, not as a nested object and not with the dots rewritten, so the backtick-quoted property paths in `usageQuery` resolve. `distinctIdField` also arrived as the event's `distinct_id`. The same run confirmed the read side end to end: a `Query: Read` personal key against `/api/projects/<id>/query/` answered 200 with the seven columns `parseUsage` reads by name. What is still unproven is the `ai.*` fields themselves, which only exist on a turn that called a model; the self-test made none.
+
+**`@vercel/before-and-after` uploads to a public paste host unless you stop it.** Its `--markdown` flag sends both frames to 0x0.st by default (`--upload-url` overrides it), which is not where a screenshot of an unreleased page belongs. `agent/lib/capture.ts` therefore never passes `--markdown`: the CLI writes files with `--output`, prints one `Saved: <path>` line per frame, and `capture_before_after` reads those two paths out of the sandbox and does the hosting itself on Blob. The filenames are derived from the page title and a timestamp, so those stdout lines are the only contract there is.
+
+**The browser and the extension are separate installs.** `@agent-browser/eve/sandbox` exports `installAgentBrowser`, which puts the binary in the sandbox for anything running under `bash`; the package's default export is the eve extension that adds `browser__*` tools to every prompt. `@vercel/before-and-after` peer-depends on the binary, not on the extension, so captures work with the first alone. Taking both is a per-turn prompt cost for a capability only a capture needs.
+
+**A tool set is priced per turn, and the `maintainer` preset is 20,000 tokens of it.** Measured from `listEveToolDescriptors` over the preset (name + description + input schema): 79 tools, 78,598 characters, roughly 21,800 tokens carried on every turn whatever the turn is about, against 27,473 characters and 7,600 tokens for the 24 in `agent/lib/github/tools.ts`. The heaviest single tool was `listWorkflowRuns` at 3,114 characters, for CI reading that `listCheckRuns` and `getCiFailureContext` already cover. Worth re-measuring the same way before adding a tool back.
 
 ## Configuration
 

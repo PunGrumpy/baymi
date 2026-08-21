@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ZodString } from "zod";
 
 import { digestRepos } from "#lib/digest";
+import { modelCostPerMTok } from "#lib/usage";
 
 const connectorUid = (provider: string): ZodString =>
   z
@@ -31,6 +32,11 @@ const connectorUid = (provider: string): ZodString =>
  * discovery with one report naming every problem, rather than throwing them one
  * at a time from whichever module happened to load first.
  *
+ * The telemetry variables are the exception to the no-fallback rule above, and
+ * they are optional rather than defaulted: a checkout with no PostHog project
+ * still boots, records its wide events, and prints them in `eve dev`. What is
+ * absent is the destination and the weekly report, not the instrumentation.
+ *
  * Each variable is described in `.env.example`; see the README for how to pass
  * `.env` to the CLI, which does not load it during discovery.
  */
@@ -48,6 +54,19 @@ export const env = createEnv({
     GITHUB_CONNECTOR: connectorUid("github"),
     LINEAR_CONNECTOR: connectorUid("linear"),
     MODEL: z.string(),
+    MODEL_COST_PER_MTOK: modelCostPerMTok.optional(),
+    OPENROUTER_MODEL_SLUG: z
+      .string()
+      .regex(/^[\w.-]+\/[\w.-]+$/u, "expected vendor/model")
+      .optional(),
+    POSTHOG_API_HOST: z.url().optional(),
+    POSTHOG_API_KEY: z.string().optional(),
+    POSTHOG_HOST: z.url().optional(),
+    POSTHOG_PERSONAL_API_KEY: z.string().optional(),
+    POSTHOG_PROJECT_ID: z
+      .string()
+      .regex(/^\d+$/u, "expected the numeric project id")
+      .optional(),
     SLACK_CONNECTOR: connectorUid("slack"),
   },
 });

@@ -19,6 +19,8 @@ Point at one surface, or use no scope. This is the whole list; anything else
 belongs in an earlier pull request that adds it here first.
 
 - github (the GitHub channel and agent/lib/github)
+- schedules (agent/schedules and agent/lib/schedule.ts)
+- telemetry (agent/hooks/evlog.ts and the usage report)
 - slack (the Slack channel and its instruction fragment)
 - linear (the Linear channel and the Linear connection)
 - digest (the weekly digest schedule and the digest-format skill)

@@ -14,7 +14,9 @@ A change ships from the sandbox checkout, never through the GitHub API. `createO
 
 ## The order
 
-1. **Read before writing.** The checkout is the real tree at the ref that triggered this session. Use `glob`, `grep` and `read_file` rather than the GitHub API: it is free, it is the code actually under discussion, and `grep` takes real expressions.
+1. **Read before writing.** On a turn that started on GitHub, the checkout is already the real tree at the ref that triggered it: use `glob`, `grep` and `read_file` rather than the GitHub API, because it is free, it is the code actually under discussion, and `grep` takes real expressions.
+
+   A turn that started anywhere else, a Slack reply or a scheduled sweep, has no checkout. Clone one before step 2: `git clone --depth 50 https://github.com/<owner>/<repo> /workspace/repo`, then `cd /workspace/repo` and install with the repository's own package manager. Everything below happens in there. The clone is worth it when a change has to be checked; for reading alone, `github__getFileContent` and `github__searchCode` answer in a second and cost nothing.
 
 2. **Branch.** Off the default branch, named for the change: `fix/digest-empty-state`, not `patch-1`.
 
@@ -26,9 +28,11 @@ A change ships from the sandbox checkout, never through the GitHub API. `createO
 
 6. **Push with `git_push`**, passing the branch and the `owner/repo`.
 
-7. **Open the pull request** with `github__createPullRequest`. Title states the change in the repository's commit convention. Load `writing-quality` before drafting the body: it is prose meant for a human reader and the same rules apply. The body says what the change does and why, what was checked, and what was not.
+7. **A visual change ships with visual evidence.** When the diff touches something rendered (a page under `apps/docs` or `apps/web`, a component, a style), load `before-after` and attach the comparison to the body.
 
-8. **Read CI back.** A pull request is not finished when it is open. Wait for the checks to settle, read them, and fix what is red before you report the pull request as ready. Announcing a pull request while a required check is failing costs the reviewer the review, and the title-validation job is the check your own title most often breaks. If a bot comment is noise the repository does not act on, say so once rather than chasing it.
+8. **Open the pull request** with `github__createPullRequest`. Title states the change in the repository's commit convention. Load `writing-quality` before drafting the body: it is prose meant for a human reader and the same rules apply. The body says what the change does and why, what was checked, and what was not.
+
+9. **Read CI back.** A pull request is not finished when it is open. Wait for the checks to settle, read them, and fix what is red before you report the pull request as ready. Announcing a pull request while a required check is failing costs the reviewer the review, and the title-validation job is the check your own title most often breaks. If a bot comment is noise the repository does not act on, say so once rather than chasing it.
 
 ## Being honest in the pull request
 

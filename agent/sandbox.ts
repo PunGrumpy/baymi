@@ -1,5 +1,15 @@
+import {
+  agentBrowserRevalidationKey,
+  installAgentBrowser,
+} from "@agent-browser/eve/sandbox";
 import { defineSandbox } from "eve/sandbox";
 import { vercel } from "eve/sandbox/vercel";
+
+/**
+ * The capture CLI, pinned so a release cannot change what a template holds
+ * without the key below changing with it.
+ */
+const BEFORE_AND_AFTER = "@vercel/before-and-after@0.0.4";
 
 /**
  * Agent sandbox configuration.
@@ -21,6 +31,17 @@ import { vercel } from "eve/sandbox/vercel";
  * recreates from the template after provider loss, which `onSession` does not
  * rerun for.
  *
+ * It also installs the capture pair: `agent-browser` for the browser itself,
+ * and the `before-and-after` CLI that drives it, which declares agent-browser
+ * as a peer dependency. Both land in the template, so a capture costs a
+ * download once per template build rather than once per pull request. Only the
+ * binaries are installed: the `@agent-browser/eve` extension, which would put
+ * `browser__*` tools in every prompt, is deliberately not mounted, because
+ * what this agent needs is evidence on a pull request, not a browser to drive.
+ *
+ * `revalidationKey` is what ties the template to those two versions. Without
+ * it a pinned bump would leave every existing template holding the old pair.
+ *
  * @see {@link https://vercel.com/docs/sandbox | Vercel Sandbox}
  */
 export default defineSandbox({
@@ -30,5 +51,9 @@ export default defineSandbox({
     await sandbox.run({
       command: "git config --global --add safe.directory '/workspace'",
     });
+    await installAgentBrowser(sandbox);
+    await sandbox.run({ command: `npm install -g ${BEFORE_AND_AFTER}` });
   },
+  revalidationKey: () =>
+    `baymi-sandbox-v1:${agentBrowserRevalidationKey()}:${BEFORE_AND_AFTER}`,
 });

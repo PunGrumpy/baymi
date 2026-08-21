@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTONOMOUS_GITHUB_PRINCIPAL,
   isAutonomous,
+  isScheduleAppAuth,
   isTrustedGitHubAssociation,
 } from "#lib/trust";
 
@@ -66,5 +67,34 @@ describe(isAutonomous, () => {
   it("treats an unauthenticated session as not autonomous", () => {
     const session: PartialSession = {};
     expect(isAutonomous(session.auth ?? null)).toBeFalsy();
+  });
+});
+
+describe(isScheduleAppAuth, () => {
+  const appAuth: SessionAuthContext = {
+    attributes: {},
+    authenticator: "app",
+    principalId: "eve:app",
+    principalType: "runtime",
+  };
+
+  it("recognizes the app principal eve stamps on a scheduled turn", () => {
+    expect(isScheduleAppAuth(appAuth)).toBeTruthy();
+  });
+
+  it("does not mistake a person or the triage principal for one", () => {
+    expect(isScheduleAppAuth(auth("github:12345"))).toBeFalsy();
+    expect(isScheduleAppAuth(auth(AUTONOMOUS_GITHUB_PRINCIPAL))).toBeFalsy();
+  });
+
+  it("needs all three fields, not just the principal id", () => {
+    // A channel could project a user principal named eve:app; the
+    // authenticator and principal type are what make it the runtime's own.
+    expect(
+      isScheduleAppAuth({ ...appAuth, authenticator: "github-webhook" })
+    ).toBeFalsy();
+    expect(
+      isScheduleAppAuth({ ...appAuth, principalType: "user" })
+    ).toBeFalsy();
   });
 });
