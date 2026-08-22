@@ -39,6 +39,7 @@ agent/
     self-review.ts          # cron "0 8 * * 3": the agent's own surface, coherence and reach; procedure in the self-review skill
     repo-health-sweep.ts    # cron "0 8 * * 5": documentation against code, conventions, quiet issues; procedure in the repo-health-sweep skill
     cost-watchdog.ts        # cron "0 10 * * 1": last week's turns, tokens and cost, read back from the wide events
+  instrumentation.ts        # exports the AI SDK's spans to PostHog as $ai_generation; metadata only, no prompts or completions
   hooks/
     evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
   sandbox.ts                # sandbox backend (Vercel Sandbox); bootstrap marks /workspace git-safe and installs agent-browser + the before-and-after CLI
