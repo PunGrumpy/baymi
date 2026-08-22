@@ -45,7 +45,10 @@ describe(failureNotice, () => {
     // quoted back, which is content this project does not send anywhere.
     const notice = failureNotice("I hit an error", "Retry.", CHINESE_REJECTION);
     expect(notice).not.toContain(CHINESE_REJECTION.message);
-    expect(notice).not.toContain("敏感内容");
+    // The opening characters too, not just the whole string: the old code ran
+    // the message through `flattenInline` first, so a leak that came back the
+    // same way would be a truncated prefix and would slip past the check above.
+    expect(notice).not.toContain("内容审核未通过");
     // The code still travels: opaque to the reader, everything to whoever
     // they forward it to.
     expect(notice).toContain("provider_error");

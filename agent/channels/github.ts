@@ -2,7 +2,7 @@ import { connectGitHubCredentials } from "@vercel/connect/eve";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
-import { failureDetail, failureNotice } from "#lib/failure";
+import { failureNotice, logFailure } from "#lib/failure";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { isAutonomousTriageState, shouldTriageIssue } from "#lib/github/issues";
 import { AUTONOMOUS_GITHUB_PRINCIPAL, isAutonomous } from "#lib/trust";
@@ -38,7 +38,7 @@ export default githubChannel({
       if (isAutonomousTriageState(channel.state)) {
         return;
       }
-      console.error(failureDetail("session", event));
+      logFailure("session", event);
       await channel.thread.post(
         failureNotice(
           "This session could not recover from an error",
@@ -51,7 +51,7 @@ export default githubChannel({
       if (isAutonomous(ctx.session.auth.current)) {
         return;
       }
-      console.error(failureDetail("turn", event));
+      logFailure("turn", event);
       await channel.thread.post(
         failureNotice(
           "I hit an error working on this",

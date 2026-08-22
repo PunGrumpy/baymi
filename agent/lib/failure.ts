@@ -78,16 +78,14 @@ export const failureLine = (
   return `${lead}${code}. ${guidance}`;
 };
 
-/**
- * The same failure for the runtime log, where the provider's text belongs.
- *
- * @remarks
- * Vercel captures this per invocation and nobody outside the deployment reads
- * it, which is the whole reason the text goes here instead of into a comment.
- * The failure *rate* stays chartable without it: `eve.phase` is already on
- * every turn event and the Reliability dashboard already plots it.
- */
-export const failureDetail = (scope: string, event: FailureEvent): string => {
+/** What died: one turn, or the session around it. */
+type FailureScope = "session" | "turn";
+
+/** The same failure as one line for a log, where the provider's text belongs. */
+export const failureDetail = (
+  scope: FailureScope,
+  event: FailureEvent
+): string => {
   const parts = [`[baymi] ${scope} failed`];
   if (event.code) {
     parts.push(`code=${event.code}`);
@@ -96,4 +94,22 @@ export const failureDetail = (scope: string, event: FailureEvent): string => {
     parts.push(flattenInline(event.message, LOG_MAX_LENGTH));
   }
   return parts.join(" ");
+};
+
+/**
+ * Writes the failure somewhere only the deployment can read.
+ *
+ * @remarks
+ * Every channel calls this beside the notice it posts, so the decision about
+ * where the provider's text is allowed to go is made here once rather than
+ * re-made at six call sites. Vercel captures the console per invocation, which
+ * is what makes it the right destination: it is the machine the agent already
+ * runs on rather than a reader or a third party.
+ *
+ * The failure *rate* needs nothing from this. `eve.phase` is already on every
+ * turn event and the Reliability dashboard already plots it; what was missing
+ * was the text, and text belongs in a log.
+ */
+export const logFailure = (scope: FailureScope, event: FailureEvent): void => {
+  console.error(failureDetail(scope, event));
 };
