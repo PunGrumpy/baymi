@@ -2,7 +2,7 @@ import { connectSlackCredentials } from "@vercel/connect/eve";
 import { slackChannel } from "eve/channels/slack";
 
 import { env } from "#lib/env";
-import { failureLine } from "#lib/failure";
+import { failureDetail, failureLine } from "#lib/failure";
 
 /**
  * Slack channel: @mentions, DMs, and follow-ups in threads the agent is already
@@ -23,6 +23,7 @@ export default slackChannel({
   credentials: connectSlackCredentials(env.SLACK_CONNECTOR),
   events: {
     async "session.failed"(event, channel) {
+      console.error(failureDetail("session", event));
       await channel.thread.post(
         failureLine(
           "This conversation hit an error it could not recover from",
@@ -32,6 +33,7 @@ export default slackChannel({
       );
     },
     async "turn.failed"(event, channel) {
+      console.error(failureDetail("turn", event));
       await channel.thread.post(
         failureLine(
           "I hit an error working on that",
