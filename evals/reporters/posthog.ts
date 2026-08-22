@@ -1,6 +1,5 @@
 import type { EvalReporter } from "eve/evals/reporters";
 
-import type { EvalRunMeta } from "#evals/lib/posthog";
 import { evalEvents } from "#evals/lib/posthog";
 import { env } from "#lib/env";
 
@@ -31,17 +30,12 @@ export const PostHog = (apiKey: string): EvalReporter => ({
     // Every result is read from the run summary instead; see the remark above.
   },
   async onRunComplete(summary) {
-    const meta: EvalRunMeta = {
+    const batch = evalEvents(summary, {
+      // CI names the commit; a local run has none and reports without one.
+      commitHash: process.env.GITHUB_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA,
       judgeModel: env.EVAL_MODEL,
       model: env.MODEL,
-    };
-    // CI names the commit; a local run has none and reports without one.
-    const commitHash =
-      process.env.GITHUB_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA;
-    const batch = evalEvents(
-      summary,
-      commitHash ? { ...meta, commitHash } : meta
-    );
+    });
     if (batch.length === 0) {
       return;
     }

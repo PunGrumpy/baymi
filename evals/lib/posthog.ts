@@ -85,8 +85,8 @@ const SCORE_PRECISION = 10_000;
  * has no segment to take, and is reported as `root`.
  */
 export const suiteOf = (id: string): string => {
-  const [suite, ...rest] = id.split("/");
-  return rest.length > 0 && suite ? suite : "root";
+  const separator = id.indexOf("/");
+  return separator > 0 ? id.slice(0, separator) : "root";
 };
 
 /**
