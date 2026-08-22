@@ -2,7 +2,7 @@ import { connectLinearCredentials } from "@vercel/connect/eve";
 import { defaultLinearAuth, linearChannel } from "eve/channels/linear";
 
 import { env } from "#lib/env";
-import { failureNotice } from "#lib/failure";
+import { failureNotice, logFailure } from "#lib/failure";
 
 /**
  * Linear channel: Agent Sessions in, Agent Activities out, via Vercel Connect.
@@ -19,6 +19,7 @@ export default linearChannel({
   credentials: connectLinearCredentials(env.LINEAR_CONNECTOR),
   events: {
     async "session.failed"(event, channel) {
+      logFailure("session", event);
       await channel.linear.createActivity({
         body: failureNotice(
           "This session could not recover from an error",
@@ -29,6 +30,7 @@ export default linearChannel({
       });
     },
     async "turn.failed"(event, channel) {
+      logFailure("turn", event);
       await channel.linear.createActivity({
         body: failureNotice(
           "I hit an error working on this",
