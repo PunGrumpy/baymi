@@ -14,6 +14,13 @@ const REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/u;
  *
  * Order is preserved and duplicates are dropped, so the same repo listed twice
  * does not post twice.
+ *
+ * The dedupe keeps the first entry apart from the rest so the result stays a
+ * non-empty tuple. `.nonempty()` already guarantees that at runtime, and
+ * rebuilding the array from a `Set` used to widen it back to `string[]`,
+ * costing every reader the guarantee: `agent/instructions/repositories.ts`
+ * names the repositories in the prompt and would otherwise have to branch on
+ * an empty list this schema cannot produce.
  */
 export const digestRepos = z
   .string()
@@ -28,7 +35,10 @@ export const digestRepos = z
       .array(z.string().regex(REPO_PATTERN, "expected owner/repo"))
       .nonempty("expected at least one owner/repo")
   )
-  .transform((repos) => [...new Set(repos)]);
+  .transform(([first, ...rest]): [string, ...string[]] => [
+    first,
+    ...new Set(rest.filter((repo) => repo !== first)),
+  ]);
 
 /**
  * The task sent into the Slack channel for one repository's digest.
