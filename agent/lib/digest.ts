@@ -35,17 +35,10 @@ export const digestRepos = z
       .array(z.string().regex(REPO_PATTERN, "expected owner/repo"))
       .nonempty("expected at least one owner/repo")
   )
-  .transform(([first, ...rest]): [string, ...string[]] => {
-    const seen = new Set([first]);
-    const unique: string[] = [];
-    for (const repo of rest) {
-      if (!seen.has(repo)) {
-        seen.add(repo);
-        unique.push(repo);
-      }
-    }
-    return [first, ...unique];
-  });
+  .transform(([first, ...rest]): [string, ...string[]] => [
+    first,
+    ...new Set(rest.filter((repo) => repo !== first)),
+  ]);
 
 /**
  * The task sent into the Slack channel for one repository's digest.

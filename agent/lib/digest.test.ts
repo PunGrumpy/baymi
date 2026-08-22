@@ -19,6 +19,18 @@ describe("DIGEST_REPOS", () => {
     ]);
   });
 
+  it("drops a duplicate wherever it sits, keeping first-seen order", () => {
+    // The first entry is deduped separately from the rest so the result stays
+    // a non-empty tuple, so a repeat of the first and a repeat among the rest
+    // travel different paths and both need pinning.
+    expect(
+      digestRepos.parse("acme/widgets,acme/docs,acme/widgets")
+    ).toStrictEqual(["acme/widgets", "acme/docs"]);
+    expect(digestRepos.parse("acme/widgets,acme/docs,acme/docs")).toStrictEqual(
+      ["acme/widgets", "acme/docs"]
+    );
+  });
+
   it("tolerates a trailing comma", () => {
     expect(digestRepos.parse("acme/widgets,")).toStrictEqual(["acme/widgets"]);
   });
