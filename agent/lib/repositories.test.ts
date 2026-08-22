@@ -19,8 +19,19 @@ describe(repositoriesInstructions, () => {
       "names no repository means `PunGrumpy/baymi`"
     );
     const several = repositoriesInstructions(["a/one", "b/two"]);
-    expect(several).toContain("ask which of them");
+    expect(several).toContain("ask which one");
     expect(several).not.toContain("names no repository means");
+  });
+
+  it("does not present the list as the limit of what it may answer", () => {
+    // DIGEST_REPOS bounds the digest and `git_push`, not which mentions the
+    // agent may answer: that is the App install plus the trust gate. Claiming
+    // otherwise would have it refuse a real mention on an undigested repo.
+    const markdown = repositoriesInstructions(["PunGrumpy/baymi"]);
+    expect(markdown).toContain("listed here or not");
+    expect(markdown).not.toContain("whole list");
+    // A repository outside the list is usable, it just may not be invented.
+    expect(markdown).toContain("Use exactly the owner and name you were given");
   });
 
   it("tells the model its own GitHub login is not an owner", () => {
