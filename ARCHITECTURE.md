@@ -39,6 +39,7 @@ agent/
     self-review.ts          # cron "0 8 * * 3": the agent's own surface, coherence and reach; procedure in the self-review skill
     repo-health-sweep.ts    # cron "0 8 * * 5": documentation against code, conventions, quiet issues; procedure in the repo-health-sweep skill
     cost-watchdog.ts        # cron "0 10 * * 1": last week's turns, tokens and cost, read back from the wide events
+  instrumentation.ts        # exports the AI SDK's spans to PostHog as $ai_generation; metadata only, no prompts or completions
   hooks/
     evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
   sandbox.ts                # sandbox backend (Vercel Sandbox); bootstrap marks /workspace git-safe and installs agent-browser + the before-and-after CLI
@@ -85,6 +86,8 @@ agent/
     cost-watchdog/          # the weekly usage read: which numbers, against which week, and what to do when a number is missing
     before-after/           # visual evidence on a pull request: what before and after are, and the fallback when a preview is protected
 evals/                      # `eve eval`: scored checks against a live model, tagged fast / needs-connect
+  lib/posthog.ts            # turns a run summary into `baymi_eval` events; colocated test
+  reporters/posthog.ts      # EvalReporter that posts them, attached in evals.config.ts when a key exists
 docs/
   capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
 ```
@@ -164,8 +167,8 @@ There is no application database.
 - **Runtime/TUI:** `bun run dev` (eve dev TUI; `/model` links a provider).
 - **Type checking:** `bun run typecheck` (tsc).
 - **Discovery diagnostics:** `bun x eve info` (must report 0 errors / 0 warnings), or `bun run validate` for typecheck + discovery together.
-- **Unit tests:** `bun run test` (vitest) over the colocated `*.test.ts` files under `agent/lib/`. Everything outside `agent/lib/` is wiring that eve boots, so it is verified by discovery and in the dev TUI rather than by a test.
-- **Evals:** `bun run eval` drives the agent against a live model and costs real money; run it deliberately, not as a check on every change.
+- **Unit tests:** `bun run test` (vitest) over the colocated `*.test.ts` files under `agent/lib/` and `evals/lib/`. Everything outside those two is wiring that eve boots, so it is verified by discovery and in the dev TUI rather than by a test.
+- **Evals:** `bun run eval` drives the agent against a live model and costs real money; run it deliberately, not as a check on every change. Each result is also sent to PostHog as a `baymi_eval` event when `POSTHOG_API_KEY` is set (`evals/reporters/posthog.ts`), which is what makes a model swap legible: the suite scores sit side by side across runs instead of scrolling past once. `--skip-report` suppresses it while iterating locally.
 
 ## Future considerations
 
