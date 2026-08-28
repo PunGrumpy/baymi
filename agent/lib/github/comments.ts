@@ -33,7 +33,7 @@ const MENTION_PATTERN = mentionPattern(BOT_NAME);
 
 /**
  * Replicates the channel's built-in ignore rules: eve's own marker comments,
- * bot authors, and the agent's own `baymi[bot]` login.
+ * bot authors, and the agent's own `baymiai[bot]` login.
  */
 export const isIgnoredComment = (
   comment: GitHubComment,

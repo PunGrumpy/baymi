@@ -7,7 +7,7 @@ A map of how this agent is put together, for humans and AI agents working in the
 - **Name:** Baymi (`baymi`), GitHub maintainer agent, ported from the Kody eve template. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
 - **Maintainer:** PunGrumpy
 - **License:** MIT
-- **Last updated:** 2026-08-21
+- **Last updated:** 2026-08-28
 
 ## Overview
 
@@ -27,7 +27,7 @@ agent/
     linear.ts               # dynamic fragment: Agent Sessions
     slack.ts                # dynamic fragment: answering in Slack, the weekly digest, digest thread replies
   channels/
-    github.ts               # eve GitHub channel via Vercel Connect; botName `baymiai` (the App slug), @mentions reply in-thread (gate in lib/github/comments.ts), onIssue starts the unattended triage turn (gate in lib/github/issues.ts); no PR or CI hook, every reply is the turn's own message posted by the channel
+    github.ts               # eve GitHub channel; installation token via Vercel Connect, webhooks straight from the App and verified with GITHUB_WEBHOOK_SECRET (Connect's trigger forwarder is metered per delivery); botName `baymiai` (the App slug), @mentions reply in-thread (gate in lib/github/comments.ts), onIssue starts the unattended triage turn (gate in lib/github/issues.ts); no PR or CI hook, every reply is the turn's own message posted by the channel
     linear.ts               # eve Linear channel via Vercel Connect; Agent Sessions, onAgentSession injects requester email; dev-only webhook-trust flag
     slack.ts                # eve Slack channel via Vercel Connect; @mentions, DMs, and follow-ups in subscribed threads
     eve.ts                  # inbound route auth; dev-only localDevUser shim (user principal)
@@ -42,7 +42,7 @@ agent/
   instrumentation.ts        # exports the AI SDK's spans to PostHog as $ai_generation; metadata only, no prompts or completions
   hooks/
     evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
-  sandbox.ts                # sandbox backend (Vercel Sandbox); bootstrap marks /workspace git-safe and installs agent-browser + the before-and-after CLI
+  sandbox.ts                # sandbox backend (Vercel Sandbox); bootstrap pins the committer identity (lib/github/identity.ts), marks /workspace git-safe, and installs agent-browser + the before-and-after CLI
   subagents/
     researcher/             # agent.ts + instructions.md; fresh-context web researcher (web tools only)
   extensions/
@@ -74,6 +74,7 @@ agent/
       comments.ts           # bot name, mention pattern, ignore rules, and the dispatch decision for a comment
       issues.ts             # whether a new issue starts an unattended triage turn, and how a failed one is recognized
       push.ts               # branch and repository validation, and the firewall policy that brokers the push credential
+      identity.ts           # the `baymiai[bot]` login, its no-reply address, and the git config the sandbox commits under
   skills/                   # load-on-demand procedures, routed by description frontmatter
     writing-quality/        # AI-tells, plain English, web-content specs
     digest-format/          # weekly digest structure: grouping, needs-attention/stale criteria, one-line summaries
@@ -137,7 +138,7 @@ There is no application database.
 
 | Integration | Purpose | Method |
 | --- | --- | --- |
-| GitHub | Issue/PR mentions and newly opened issues in, in-thread replies out; issue reads and triage | eve GitHub channel + `@github-tools/eve-extension` (`maintainer` preset), both via Vercel Connect (`GITHUB_CONNECTOR`) |
+| GitHub | Issue/PR mentions and newly opened issues in, in-thread replies out; issue reads and triage | eve GitHub channel + `@github-tools/eve-extension` (`maintainer` preset), both taking their installation token from Vercel Connect (`GITHUB_CONNECTOR`); webhooks bypass Connect and are verified with `GITHUB_WEBHOOK_SECRET` |
 | Linear (channel + MCP) | Agent Sessions in; issue creation, comments, and cross-references out | eve Linear channel via Connect (with an `onAgentSession` hook adding the requester's email to context); MCP connection to `mcp.linear.app` with app-scoped auth (`LINEAR_CONNECTOR`) |
 | Slack | @mentions and DMs in, replies in-thread out | eve Slack channel via Vercel Connect (`SLACK_CONNECTOR`), which supplies the bot token and verifies inbound webhooks |
 | Vercel Blob | Per-user preference storage | `@vercel/blob`, OIDC-authenticated |
@@ -148,8 +149,8 @@ There is no application database.
 ## Deployment & infrastructure
 
 - **Platform:** Vercel. Deploy with `eve deploy` (wraps `vercel deploy --prod`); the raw `vercel deploy` cannot auto-detect the eve framework.
-- **Connectors:** provisioned via `vercel connect create` + `attach`; the GitHub trigger must point at `/eve/v1/github`, the Linear trigger at `/eve/v1/linear`, and the Slack trigger at `/eve/v1/slack`.
-- **Environment:** connector UIDs `GITHUB_CONNECTOR`, `LINEAR_CONNECTOR`, and `SLACK_CONNECTOR`; model access `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`, with `MODEL` for the agent and `EVAL_MODEL` for the eval judge; digest config `DIGEST_REPOS` (comma separated) and `DIGEST_SLACK_CHANNEL`. Blob and the researcher subagent's gateway model both authenticate via the project's OIDC token, so neither carries a key of its own. Every variable above is declared and parsed in one place, `agent/lib/env.ts` (`@t3-oss/env-core` over Zod): nothing has a silent fallback, so a missing or malformed value fails discovery with a single aggregated report instead of an opaque failure at request time.
+- **Connectors:** provisioned via `vercel connect create` + `attach`; the Linear trigger points at `/eve/v1/linear` and the Slack trigger at `/eve/v1/slack`. The GitHub connector has no trigger: its App posts to `https://<deployment>/eve/v1/github` directly, subscribed to `issue_comment` and `issues` only, because Connect bills every forwarded delivery and the unhandled `pull_request` and `check_suite` events were half of them.
+- **Environment:** connector UIDs `GITHUB_CONNECTOR`, `LINEAR_CONNECTOR`, and `SLACK_CONNECTOR`, plus `GITHUB_WEBHOOK_SECRET` for the GitHub App's own webhook signature; model access `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`, with `MODEL` for the agent and `EVAL_MODEL` for the eval judge; digest config `DIGEST_REPOS` (comma separated) and `DIGEST_SLACK_CHANNEL`. Blob and the researcher subagent's gateway model both authenticate via the project's OIDC token, so neither carries a key of its own. Every variable above is declared and parsed in one place, `agent/lib/env.ts` (`@t3-oss/env-core` over Zod): nothing has a silent fallback, so a missing or malformed value fails discovery with a single aggregated report instead of an opaque failure at request time.
 - **Local development:** `bun run dev` runs the same runtime in a TUI; `vercel env pull` supplies a short-lived OIDC token. The webhook surfaces (GitHub, Linear, Slack) run against a deployment. Schedules never fire on cadence in dev; trigger the digest once with `POST /eve/v1/dev/schedules/weekly-digest`.
 
 ## Security considerations
