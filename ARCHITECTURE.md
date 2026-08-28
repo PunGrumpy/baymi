@@ -7,7 +7,7 @@ A map of how this agent is put together, for humans and AI agents working in the
 - **Name:** Baymi (`baymi`), GitHub maintainer agent, ported from the Kody eve template. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
 - **Maintainer:** PunGrumpy
 - **License:** MIT
-- **Last updated:** 2026-08-21
+- **Last updated:** 2026-08-28
 
 ## Overview
 
@@ -42,7 +42,7 @@ agent/
   instrumentation.ts        # exports the AI SDK's spans to PostHog as $ai_generation; metadata only, no prompts or completions
   hooks/
     evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
-  sandbox.ts                # sandbox backend (Vercel Sandbox); bootstrap marks /workspace git-safe and installs agent-browser + the before-and-after CLI
+  sandbox.ts                # sandbox backend (Vercel Sandbox); bootstrap pins the committer identity (lib/github/identity.ts), marks /workspace git-safe, and installs agent-browser + the before-and-after CLI
   subagents/
     researcher/             # agent.ts + instructions.md; fresh-context web researcher (web tools only)
   extensions/
@@ -74,6 +74,7 @@ agent/
       comments.ts           # bot name, mention pattern, ignore rules, and the dispatch decision for a comment
       issues.ts             # whether a new issue starts an unattended triage turn, and how a failed one is recognized
       push.ts               # branch and repository validation, and the firewall policy that brokers the push credential
+      identity.ts           # the `baymiai[bot]` login, its no-reply address, and the git config the sandbox commits under
   skills/                   # load-on-demand procedures, routed by description frontmatter
     writing-quality/        # AI-tells, plain English, web-content specs
     digest-format/          # weekly digest structure: grouping, needs-attention/stale criteria, one-line summaries

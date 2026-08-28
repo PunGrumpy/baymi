@@ -24,7 +24,9 @@ A change ships from the sandbox checkout, never through the GitHub API. `createO
 
 4. **Run what the repository runs.** Its CI workflow is the list, not your assumption: read `.github/workflows/` and run those commands, then its `package.json` scripts and its `AGENTS.md` or contributing guide for anything CI does not cover. Every one of them exits 0 before you commit, or the reason it did not goes in the pull request body.
 
-5. **Commit.** One coherent change per commit, message in the repository's own convention. Where that convention is Conventional Commits, read the type and scope vocabulary out of the repository (its pull request template, or the title-validation job in `.github/workflows/`) rather than inventing a scope that merely sounds right. A scope the repository does not define is how a title fails validation. When a change is cross-cutting, no scope is the correct answer.
+5. **Commit.** The sandbox is already configured to commit as `baymiai[bot]`. Never set `user.name` or `user.email`, and never pass `--author`: an identity you supply is a guess, and a guessed one lands the commit on a stranger's account. If git says it cannot work out who you are, say so and stop rather than answering it.
+
+   One coherent change per commit, message in the repository's own convention. Where that convention is Conventional Commits, read the type and scope vocabulary out of the repository (its pull request template, or the title-validation job in `.github/workflows/`) rather than inventing a scope that merely sounds right. A scope the repository does not define is how a title fails validation. When a change is cross-cutting, no scope is the correct answer.
 
 6. **Push with `git_push`**, passing the branch and the `owner/repo`.
 
