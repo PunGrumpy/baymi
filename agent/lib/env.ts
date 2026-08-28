@@ -52,6 +52,7 @@ export const env = createEnv({
       .regex(/^[CDG][A-Z0-9]{6,}$/u, "expected a Slack conversation ID"),
     EVAL_MODEL: z.string(),
     GITHUB_CONNECTOR: connectorUid("github"),
+    GITHUB_WEBHOOK_SECRET: z.string(),
     LINEAR_CONNECTOR: connectorUid("linear"),
     MODEL: z.string(),
     MODEL_COST_PER_MTOK: modelCostPerMTok.optional(),

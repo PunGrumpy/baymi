@@ -8,6 +8,28 @@ import { isAutonomousTriageState, shouldTriageIssue } from "#lib/github/issues";
 import { AUTONOMOUS_GITHUB_PRINCIPAL, isAutonomous } from "#lib/trust";
 
 /**
+ * GitHub App credentials: installation tokens from Vercel Connect, webhooks
+ * verified against the App's own secret.
+ *
+ * @remarks
+ * The App posts its webhooks straight at `/eve/v1/github` rather than through
+ * Connect's trigger forwarder. Forwarding is metered per delivery, and this
+ * repository's own CI and review traffic runs about sixteen times the Hobby
+ * allowance on `issue_comment` alone; the events are identical either way, so
+ * the forwarder was buying nothing but the bill.
+ *
+ * `connectGitHubCredentials` returns a `webhookVerifier` that checks the Vercel
+ * OIDC signature Connect attaches on the way out. A webhook that came straight
+ * from GitHub does not carry one, and eve skips the `webhookSecret` path
+ * entirely whenever a verifier is present, so the verifier is dropped here
+ * rather than left in place to reject every delivery. `installationToken` is
+ * untouched: token minting, rotation, and tenancy stay inside Connect, and
+ * there is still no App private key in this deployment.
+ */
+const { webhookVerifier: _connectForwarderVerifier, ...connectGitHub } =
+  connectGitHubCredentials(env.GITHUB_CONNECTOR);
+
+/**
  * GitHub channel: @mentions on issues and pull requests, answered in-thread as
  * `baymiai`, and an unattended first reply on issues opened by people outside
  * the repository.
@@ -15,7 +37,8 @@ import { AUTONOMOUS_GITHUB_PRINCIPAL, isAutonomous } from "#lib/trust";
  * @remarks
  * - Credentials are brokered by Vercel Connect. The connector UID comes from
  *   `GITHUB_CONNECTOR`; tokens are resolved per call and never exposed to the
- *   model.
+ *   model. Inbound webhooks arrive straight from GitHub and are checked against
+ *   `GITHUB_WEBHOOK_SECRET`; see the credentials above for why.
  * - `onComment` replaces the built-in mention gate with
  *   `shouldDispatchComment`, which keeps the default mention and ignore rules
  *   and adds the authorization check from `agent/lib/trust.ts`: only a
@@ -30,7 +53,7 @@ import { AUTONOMOUS_GITHUB_PRINCIPAL, isAutonomous } from "#lib/trust";
  */
 export default githubChannel({
   botName: BOT_NAME,
-  credentials: connectGitHubCredentials(env.GITHUB_CONNECTOR),
+  credentials: { ...connectGitHub, webhookSecret: env.GITHUB_WEBHOOK_SECRET },
   events: {
     async "session.failed"(event, channel) {
       // A failed triage stays quiet: the reporter did not ask for this turn

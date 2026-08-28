@@ -7,6 +7,7 @@ const VALID_ENV = {
   DIGEST_SLACK_CHANNEL: "C0123456789",
   EVAL_MODEL: "test-eval-model",
   GITHUB_CONNECTOR: "github/baymi",
+  GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   LINEAR_CONNECTOR: "linear/baymi",
   MODEL: "test-model",
   SLACK_CONNECTOR: "slack/baymi",
