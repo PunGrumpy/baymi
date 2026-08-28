@@ -1,6 +1,6 @@
 import type { GithubWriteToolName } from "@github-tools/sdk/eve-runtime";
 import type { SessionAuthContext } from "eve/context";
-import type { ApprovalStatus } from "eve/tools";
+import type { ApprovalStatus } from "eve/tools/approval";
 
 import { isAutonomous, isScheduleAppAuth } from "#lib/trust";
 
