@@ -2,7 +2,7 @@ import type { GithubWriteToolName } from "@github-tools/sdk/eve-runtime";
 import type { SessionAuthContext } from "eve/context";
 import type { ApprovalStatus } from "eve/tools/approval";
 
-import { isAutonomous, isScheduleAppAuth } from "#lib/trust";
+import { isAutonomous } from "#lib/trust";
 
 /**
  * Who answers for a GitHub write, decided from the session rather than from the
@@ -92,23 +92,33 @@ export const gatedWrite = (auth: SessionAuthContext | null): ApprovalStatus =>
   isAutonomous(auth) ? DENIED : "user-approval";
 
 /**
- * Opening a pull request, which a scheduled sweep does without a card as long
- * as the pull request is a draft.
+ * Opening a pull request, which runs without a card when the pull request is
+ * a draft.
  *
  * @remarks
- * A sweep fires while nobody is watching Slack, so a card there is not a
- * confirmation, it is a session parked until someone happens to look. A draft
- * cannot merge and marking one ready stays a human act, so the review itself
- * is the confirmation and the branch is already the deliverable. A sweep that
- * wants a non-draft pull request still asks.
+ * The branch is the durable part and it has already landed. `git_push` runs
+ * uncarded on every turn a person started, so carding the pull request that
+ * describes that branch confirms nothing the push did not. A draft cannot
+ * merge, marking one ready stays a human act, and the review is the
+ * confirmation. A pull request that is ready to merge still asks, whoever
+ * asked for it.
+ *
+ * A scheduled sweep is the case that made this exemption necessary, and it is
+ * no longer the only one. Someone can answer a card only while the session
+ * that raised it is alive, and that fails from both ends. A sweep fires while
+ * nobody is watching Slack. An attended turn that dies mid-flight leaves its
+ * card behind, and the click then arrives for a session eve can no longer
+ * find, which `docs/notes.md` records. Neither one is a confirmation.
  */
 export const pullRequestWrite = (
   auth: SessionAuthContext | null,
   input: PullRequestInput | undefined
-): ApprovalStatus =>
-  isScheduleAppAuth(auth) && input?.draft === true
-    ? "not-applicable"
-    : gatedWrite(auth);
+): ApprovalStatus => {
+  if (isAutonomous(auth)) {
+    return DENIED;
+  }
+  return input?.draft === true ? "not-applicable" : "user-approval";
+};
 
 /** What the extension is handed for one write tool. */
 type WritePolicy = (ctx: WriteApprovalContext) => ApprovalStatus;
