@@ -1,7 +1,10 @@
 import type { SessionAuthContext } from "eve/context";
 import { describe, expect, it } from "vitest";
 
-import type { WriteApprovalContext } from "#lib/github/approval";
+import type {
+  PullRequestInput,
+  WriteApprovalContext,
+} from "#lib/github/approval";
 import {
   AUTONOMOUS_WRITE_DENIAL,
   CONVERSATION_WRITES,
@@ -28,6 +31,15 @@ const SCHEDULE: SessionAuthContext = {
   authenticator: "app",
   principalId: "eve:app",
   principalType: "runtime",
+};
+
+/**
+ * A tool call that named no `draft` at all. The value is read off an object
+ * because the formatter drops a trailing bare `undefined`, and this parameter
+ * is not optional.
+ */
+const ABSENT = { input: undefined } satisfies {
+  input: PullRequestInput | undefined;
 };
 
 const approvalContext = (
@@ -63,23 +75,39 @@ describe(gatedWrite, () => {
 });
 
 describe(pullRequestWrite, () => {
-  it("lets a scheduled sweep open a draft without a card", () => {
-    // Nobody is watching Slack when a sweep fires, so a card there parks the
-    // session instead of confirming anything. A draft cannot merge.
+  it("opens a draft without a card, whoever asked", () => {
+    // The branch already landed through an uncarded `git_push`, and a draft
+    // cannot merge. A card here confirms nothing the push did not.
     expect(pullRequestWrite(SCHEDULE, { draft: true })).toBe("not-applicable");
+    expect(pullRequestWrite(MAINTAINER, { draft: true })).toBe(
+      "not-applicable"
+    );
+    expect(pullRequestWrite(null, { draft: true })).toBe("not-applicable");
   });
 
-  it("still asks a sweep about a pull request that is ready to merge", () => {
+  it("still asks about a pull request that is ready to merge", () => {
     expect(pullRequestWrite(SCHEDULE, { draft: false })).toBe("user-approval");
     expect(pullRequestWrite(SCHEDULE, {})).toBe("user-approval");
+    expect(pullRequestWrite(MAINTAINER, { draft: false })).toBe(
+      "user-approval"
+    );
+    expect(pullRequestWrite(MAINTAINER, ABSENT.input)).toBe("user-approval");
   });
 
-  it("asks a person whether the pull request is a draft or not", () => {
-    expect(pullRequestWrite(MAINTAINER, { draft: true })).toBe("user-approval");
+  it("reads only a literal true as a draft", () => {
+    // `draft` arrives from the model, and the only thing that follows from it
+    // is an exemption, so a string is not close enough.
+    expect(pullRequestWrite(MAINTAINER, { draft: "true" })).toBe(
+      "user-approval"
+    );
   });
 
   it("refuses an unattended turn either way", () => {
     expect(pullRequestWrite(UNATTENDED, { draft: true })).toStrictEqual({
+      reason: AUTONOMOUS_WRITE_DENIAL,
+      type: "denied",
+    });
+    expect(pullRequestWrite(UNATTENDED, { draft: false })).toStrictEqual({
       reason: AUTONOMOUS_WRITE_DENIAL,
       type: "denied",
     });

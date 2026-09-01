@@ -6,6 +6,16 @@ Things that cost time to find out. Each one is why some line of this agent, or o
 
 **The channel posts the turn's own message, so a comment tool posts a second one.** eve's GitHub channel installs a `message.completed` handler that posts any completed message into the thread the session is anchored to. A turn that answers by calling `github__addIssueComment` or `github__addPullRequestComment` therefore lands twice: the tool's comment, then the reply narrating that it posted the tool's comment. On PR #10 that produced three comments for one summary, and the write tool also raised an approval card the flow did not need, because the summary the session existed to post was gated as if it were an unasked-for write. Every GitHub instruction here now says the reply is the comment; the comment tools are for writing on some _other_ issue or pull request.
 
+**An approval card outlives the session that raised it, and then Approve does nothing.** Slack renders the card, Connect forwards the click, and the route answers 200. The wiring is fine. The last hop is what fails:
+
+```
+POST /eve/v1/slack  200
+[eve:slack.interactions] HITL interaction delivery failed
+  Cannot deliver inputResponses — the target session was not found via continuation token.
+```
+
+Observed on 2026-09-01: six clicks over sixteen seconds, each one logging that same line. Fifty-six seconds before the first click, `turnStep` had gone fatal with `Max retries reached, bubbling error to parent workflow · retry 4 attempts · 3 max retries · FatalError code USER_ERROR`. The card is a message in a Slack thread and nothing more. The pause it answers lives in the session, so once the session is gone the click resolves nothing, and the card stays on screen still looking answerable. A schedule-dispatched turn fails from the other end, with nobody watching Slack while its session is still alive. That is why `agent/lib/github/approval.ts` exempts draft pull requests instead of trusting the card. Where the choice is open elsewhere, a refusal the model can read beats a prompt that may reach nobody.
+
 **A failed queue delivery re-runs the turn, and side effects go with it.** A `TypeError: fetch failed` mid-turn produced this pair in the dev log:
 
 ```
