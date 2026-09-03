@@ -7,7 +7,7 @@ A map of how this agent is put together, for humans and AI agents working in the
 - **Name:** Baymi (`baymi`), GitHub maintainer agent, ported from the Kody eve template. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
 - **Maintainer:** PunGrumpy
 - **License:** MIT
-- **Last updated:** 2026-08-29
+- **Last updated:** 2026-09-03
 
 ## Overview
 
@@ -51,7 +51,7 @@ agent/
     git_push.ts               # pushes a sandbox branch; credential brokered at the firewall, main/master and unfollowed repos refused, withheld from unattended turns
     send_slack_dm.ts          # Slack DM by email lookup; dynamic, withheld from Slack sessions (lib/slack.ts) so a reply is never delivered twice
     usage_report.ts           # reads the agent's own turns back out of PostHog; dynamic, needs the PostHog key and project id, withheld from unattended turns
-    capture_before_after.ts   # screenshots two URLs in the sandbox, uploads both to Blob, returns the markdown table; host allow-list, withheld from unattended turns
+    capture_before_after.ts   # screenshots a page before and after (or the after alone for a new page) in the sandbox, uploads the frames to Blob, returns the marked comparison block; host allow-list, withheld from unattended turns
     get_user_preferences.ts   # Blob: load this user's saved preferences
     save_user_preferences.ts  # Blob: save standing preferences (principal-scoped)
     clear_user_preferences.ts # Blob: clear this user's preferences (approval-gated)
@@ -59,7 +59,7 @@ agent/
     digest.ts               # DIGEST_REPOS parsing and the per-repo digest prompt
     drains.ts               # fan-out for wide events: one failing destination never takes the others, or the turn, with it
     usage.ts                # the turn event name, the MODEL_COST_PER_MTOK schema, the usage HogQL query and its parser, and the OpenRouter price lookup
-    capture.ts              # which hosts may be captured, the capture command, the CLI's saved-path contract, and the comparison table
+    capture.ts              # which hosts may be captured, the pair command (CLI) and the single-frame command (agent-browser), the CLI's saved-path contract, and the marked comparison block
     schedule.ts             # the shared sweep preamble and the Slack delivery every maintenance schedule uses
     anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL
     env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
@@ -102,7 +102,7 @@ docs/
 | Slack surface | `agent/channels/slack.ts` | Channel | @mentions and DMs, plus follow-up messages in a thread that already has an active session (`isSubscribed()`); bot-authored messages are dropped. Thread continuation needs `message.channels`/`channels:history` on the connector; without them mentions still work |
 | Route auth | `agent/channels/eve.ts` | Channel | Inbound auth for the eve route; the `localDevUser` shim upgrades the dev principal to a user so user-scoped features work in the dev TUI |
 | Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One evlog wide event per turn (`evlog/eve`), carrying identity, channel, tokens, tool executions and outcome, and no message content. Drains to the filesystem in `eve dev` and to PostHog as a `baymi_turn` event when `POSTHOG_API_KEY` is set. It is not a duplicate of eve's Agent Runs: the model answers through a gateway of the operator's choosing, so Vercel reports `costUsd: null` for every run and this is the only record the agent can read back |
-| Visual evidence | `agent/tools/capture_before_after.ts` + `agent/lib/capture.ts` + the `before-after` skill | Tool (dynamic) | Screenshots a page before and after a change and returns a markdown table of two public Blob URLs, for the body of a pull request against a repository that deploys a site (`logixlysia`, `docker-doctor`). The sandbox template carries `agent-browser` and the `@vercel/before-and-after` CLI that drives it; the `@agent-browser/eve` extension is deliberately **not** mounted, so no `browser__*` tool is carried in any prompt. Capture targets are limited to `*.vercel.app` and `localhost`, and hosting is this agent's own Blob store rather than the CLI's default public paste host |
+| Visual evidence | `agent/tools/capture_before_after.ts` + `agent/lib/capture.ts` + the `before-after` skill | Tool (dynamic) | Screenshots a page before and after a change, or the after alone when the page is new, for the body of a pull request against a repository that deploys a site (`logixlysia`, `docker-doctor`). Returns the comparison as a block fenced in `<!-- before-and-after:start/end -->` (the upstream skill's markers) over public Blob URLs. The pinned CLI captures a pair, `agent-browser` alone captures a lone frame, and full-page pairs render as an HTML table with cells pinned to the top so two pages of different length line up. The sandbox template carries `agent-browser` and the `@vercel/before-and-after` CLI that drives it; the `@agent-browser/eve` extension is deliberately **not** mounted, so no `browser__*` tool is carried in any prompt. Capture targets are limited to `*.vercel.app` and `localhost`, and hosting is this agent's own Blob store rather than the CLI's default public paste host or `gh --attach`, which refuses an App installation token (`docs/notes.md`) |
 | Usage report | `agent/tools/usage_report.ts` + `agent/lib/usage.ts` | Tool (dynamic) | Reads those events back with one HogQL query, a row per day and model: turns, tokens, cost, failed turns. It returns two prices with them: the `MODEL_COST_PER_MTOK` the rows were costed at, and what OpenRouter publishes for `OPENROUTER_MODEL_SLUG` right now, read per run from the per-model endpoint (about a kilobyte, against a megabyte for the full catalogue) so a stale rate is reported rather than quietly applied. Resolved per turn, so it appears only where the PostHog key and project id are both configured, and never on an unattended triage turn |
 | Maintenance sweeps | `agent/schedules/{upstream-sync,self-review,repo-health-sweep,cost-watchdog}.ts` + `agent/lib/schedule.ts` | Schedules | Four weekly passes the agent runs on its own clock, delivered to the digest Slack channel through `maintenanceRun`: Monday 07:00 UTC what moved upstream, Monday 10:00 UTC what last week cost, Wednesday 08:00 UTC its own surface, Friday 08:00 UTC the repository's documentation against its code. Each carries only a cadence and a one-line task; the procedure is the skill it names. They run under eve's app principal (`isScheduleAppAuth`), which is why a draft pull request from one skips the approval card: nobody is watching Slack when a sweep fires, so a card there parks the session instead of confirming anything |
 | Weekly digest | `agent/schedules/weekly-digest.ts` | Schedule | Cron `0 9 * * 1` (Mondays 09:00 UTC), handler form: `to(slack, { channelId })` starts the session on the Slack channel, so the digest is the session's final message and thread replies resume it; structure comes from the `digest-format` skill |
