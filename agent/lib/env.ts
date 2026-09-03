@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { ZodString } from "zod";
 
 import { digestRepos } from "#lib/digest";
-import { modelCostPerMTok } from "#lib/usage";
 
 const connectorUid = (provider: string): ZodString =>
   z
@@ -55,11 +54,6 @@ export const env = createEnv({
     GITHUB_WEBHOOK_SECRET: z.string(),
     LINEAR_CONNECTOR: connectorUid("linear"),
     MODEL: z.string(),
-    MODEL_COST_PER_MTOK: modelCostPerMTok.optional(),
-    OPENROUTER_MODEL_SLUG: z
-      .string()
-      .regex(/^[\w.-]+\/[\w.-]+$/u, "expected vendor/model")
-      .optional(),
     POSTHOG_API_HOST: z.url().optional(),
     POSTHOG_API_KEY: z.string().optional(),
     POSTHOG_HOST: z.url().optional(),

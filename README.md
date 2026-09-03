@@ -51,7 +51,7 @@ Four more scheduled passes land in the same Slack channel during the week, each 
 - **Monday 07:00 UTC, upstream check**: what moved in eve, Vercel Connect, and the GitHub tool set, what is worth taking, and which workaround in `docs/notes.md` their release made unnecessary
 - **Wednesday 08:00 UTC, self review**: the agent's own surface, in two halves — what has drifted out of coherence, and what capability is missing
 - **Friday 08:00 UTC, repository sweep**: the repo's documentation against the code it describes, its own stated conventions, and issues that went quiet
-- **Monday 10:00 UTC, cost watchdog**: last week's turns, tokens, and cost against the week before, read back from the agent's own wide events. Needs a PostHog project; without one the other three still run
+- **Monday 10:00 UTC, cost watchdog**: last week's turns and tokens against the week before, read back from the agent's own wide events. Needs a PostHog project; without one the other three still run
 
 Each one reports in the thread and opens a draft pull request for the fixes it can carry through the repository's checks itself. Nothing merges without you.
 

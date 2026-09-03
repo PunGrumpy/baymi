@@ -17,8 +17,8 @@ import { TURN_EVENT } from "#lib/usage";
  * eve's own Agent Runs already show a turn in the Vercel dashboard, and this
  * does not replace them. What it adds is a record the agent can read back: the
  * model answers through a gateway of the operator's choosing, so nothing
- * upstream knows what a token costs here, and the weekly `cost-watchdog` sweep
- * has no source but the one this hook writes.
+ * upstream counts its tokens, and the weekly `cost-watchdog` sweep has no
+ * source but the one this hook writes.
  *
  * `message: "omit"` is evlog's default and stays. A turn carries issue bodies,
  * comments, and Slack messages other people wrote, so the event records the
@@ -32,7 +32,7 @@ import { TURN_EVENT } from "#lib/usage";
 const posthogDrain = (apiKey: string) => {
   const config: PostHogConfig = {
     apiKey,
-    // Cost and volume group by whoever triggered the turn.
+    // Volume groups by whoever triggered the turn.
     distinctIdField: "eve.caller.principalId",
     eventName: TURN_EVENT,
     // Events rather than logs: at this volume the per-GB saving is irrelevant,
@@ -75,8 +75,4 @@ const drain = createFanOutDrain(destinations);
 if (drain) {
   options.drain = drain;
 }
-if (env.MODEL_COST_PER_MTOK) {
-  options.cost = { [env.MODEL]: env.MODEL_COST_PER_MTOK };
-}
-
 export default defineEvlogHook(options);
