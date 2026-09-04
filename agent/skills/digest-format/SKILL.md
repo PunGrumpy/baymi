@@ -18,13 +18,15 @@ The weekly digest is one Slack message a maintainer skims. Everything here serve
 
 ## Structure
 
-Open with a one-paragraph overview: total open issues, what changed since last week (new, closed, spikes), and any theme worth a sentence. Then the groups, then the closing invitation.
+The first line after the opening carries the week. One line, holding three things: how many issues are open, what moved (new, closed), and the single item that most needs the maintainer, named with its number. Someone who reads nothing else should have read the thing that mattered. A theme worth a sentence gets a second line, and only when there is one; there usually is not.
 
-Default grouping, in this order:
+The whole digest is at most 15 lines. Not a target, a ceiling. Past it a Slack message stops being skimmed and starts being scrolled, which is the same as unread. When the issues do not fit, cut from the bottom group up and say what was cut: `Stale (12), 5 oldest below`. Never shrink the lines themselves to fit more in.
 
-1. Needs attention: issues a maintainer should look at first.
-2. Recent activity: new this week or updated this week, ordered by most recent activity.
-3. Stale: open with no activity in 30 or more days. If this group is long, list the five oldest and give a count for the rest.
+Default grouping, in this order, each heading carrying its count so the shape of the week is legible before a single line is read:
+
+1. **Needs attention (n):** issues a maintainer should look at first.
+2. **Recent activity (n):** new this week or updated this week, ordered by most recent activity.
+3. **Stale (n):** open with no activity in 30 or more days. List the five oldest and give a count for the rest.
 
 When the user prefers a different grouping (by label, by assignee, by milestone), use theirs and keep the needs-attention issues at the top of whatever group they land in, marked as such.
 
@@ -47,13 +49,20 @@ An issue appears in exactly one group. Needs attention wins over the others.
 
 ## Summarizing an issue in one line
 
-Each issue gets one line: the citation, the title or a tightened version of it, then the state of play.
+Every line has the same three parts in the same order, so the eye can run down the left edge and the reader can stop at any point without losing the thread:
+
+```
+[#42](link) Crash on empty config: fix proposed, awaiting review
+ ^number     ^what it is             ^where it stands
+```
+
+The number comes first on every line, never after the title and never inside a sentence. It is what replies are written against, and a column of numbers is what makes the message scannable rather than a paragraph in list clothing.
 
 - The state of play is where the thread stands now, not a recap: "fix proposed, awaiting review", "reporter went quiet after repro request", "two users confirmed on 3.2".
 - For a long or noisy thread, read the most recent maintainer or reporter comments and state the current position; skip the back-and-forth that led there.
 - Never paste issue bodies or comment text. Numbers help ("14 comments this week") when the volume itself is the news.
 
-Example line: [#42](https://github.com/acme/widgets/issues/42) Crash on empty config: fix proposed, awaiting maintainer review.
+Titles are tightened, not quoted. Drop a prefix the group already carries (`[bug]`, `Bug:`) and cut a title down to what distinguishes this issue from the one above it.
 
 ## Citations
 
@@ -64,8 +73,11 @@ Example line: [#42](https://github.com/acme/widgets/issues/42) Crash on empty co
 
 - The reader is skimming a Slack message. Bold group names, one line per issue, no walls of text.
 - Keep the overview to one paragraph and each issue to one line. If an issue truly needs more, one extra clause beats a second paragraph.
-- Write plain Markdown; the channel converts it for Slack. Bold and links carry over, headings and tables have no Slack equivalent, so use bold group names and simple lists; nothing heavier.
+- Write plain Markdown; the channel converts it for Slack. Bold and links carry over, headings and tables have no Slack equivalent, so use bold group names and flat lists, nothing heavier.
+- One blank line between groups and none inside one. A group whose lines are spaced out reads as several groups.
 
 ## Closing
 
-End every digest by inviting the reader to reply in the thread to act, naming the concrete options: ask for detail on an issue, have you comment on one, or have you create Linear issues from it. Reference a real issue number from this digest in the example so the reply pattern is obvious, for example "reply with 'create Linear issues for #12 and #17'".
+One line, and only when there is something to act on. Name the concrete options (ask for detail on an issue, comment on one, create Linear issues from it) against a real number from this digest: "Reply to act, e.g. 'create Linear issues for #12 and #17'".
+
+This is not a fixed footer. The maintainer reads this digest every week and learned the reply pattern the first time; repeating it verbatim 52 times a year turns the last line into something the eye skips, which is a poor place for the one instruction that matters. A quiet week with nothing worth acting on ends after its last group.
