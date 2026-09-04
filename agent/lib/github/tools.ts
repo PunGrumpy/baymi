@@ -10,11 +10,13 @@ import type { GithubWriteToolName } from "@github-tools/sdk/eve-runtime";
  * nothing in `agent/instructions.md` or any skill ever reaches for. This list
  * is what those procedures actually name or plainly need, at 7,600.
  *
- * Three of the omissions are worth stating, because the tool existed only to
+ * Two of the omissions are worth stating, because the tool existed only to
  * be refused: `createOrUpdateFile` (code ships from the sandbox checkout, not
- * through the API), `createLabel` (the triage playbook works from the repo's
- * existing vocabulary), and `createPullRequestReview` (approving and
- * requesting changes are a person's act). The workflow tools go because CI is
+ * through the API) and `createPullRequestReview` (approving and requesting
+ * changes are a person's act). `updateLabel` and `requestReviewers` are out
+ * for the ordinary reason rather than a principled one: no procedure here
+ * renames a label or picks a reviewer, and an unused tool is still priced on
+ * every turn. The workflow tools go because CI is
  * read through `listCheckRuns` and `getCiFailureContext`; branches because a
  * branch is made with git in the sandbox; notifications, discussions,
  * reactions, releases beyond a listing, forks, and every delete because no
@@ -50,12 +52,15 @@ const GITHUB_READS = [
  * what decides whether it runs, asks, or is refused.
  */
 export const GITHUB_WRITES = [
+  "addAssignees",
   "addIssueComment",
   "addLabels",
   "addPullRequestComment",
   "closeIssue",
   "createIssue",
+  "createLabel",
   "createPullRequest",
+  "removeAssignees",
   "removeLabel",
 ] as const satisfies readonly GithubWriteToolName[];
 

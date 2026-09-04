@@ -51,6 +51,23 @@ export const isTrustedGitHubAssociation = (
 ): boolean => TRUSTED_GITHUB_ASSOCIATIONS.has(association);
 
 /**
+ * The maintainer's GitHub login, lowercase, used to decide who an unattended
+ * turn may hand an issue to.
+ *
+ * @remarks
+ * A public handle, not a credential, so it is a constant rather than an
+ * environment variable: an escalation that silently stops escalating because a
+ * variable went missing is worse than one that cannot be reconfigured without
+ * a deploy. Lowercase because GitHub logins are case-insensitive and the
+ * comparison is, so the stored form has to be the normalized one.
+ *
+ * This is deliberately one name. The question "who should look at this?" is a
+ * judgement about people's time that a model answering a stranger's issue has
+ * no way to make, and on these repositories it has one answer anyway.
+ */
+export const MAINTAINER_GITHUB_LOGIN = "pungrumpy";
+
+/**
  * The principal an unattended first-responder turn runs as.
  *
  * @remarks

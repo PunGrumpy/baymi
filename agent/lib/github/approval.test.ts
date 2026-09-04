@@ -6,16 +6,24 @@ import type {
   WriteApprovalContext,
 } from "#lib/github/approval";
 import {
+  assignWrite,
+  autonomousLabelDenial,
   AUTONOMOUS_WRITE_DENIAL,
+  AUTONOMOUS_WRITES,
+  autonomousWrite,
   CONVERSATION_WRITES,
   conversationWrite,
   GATED_WRITES,
   gatedWrite,
   githubWriteApprovals,
+  labelWrite,
   pullRequestWrite,
 } from "#lib/github/approval";
 import { GITHUB_WRITES } from "#lib/github/tools";
-import { AUTONOMOUS_GITHUB_PRINCIPAL } from "#lib/trust";
+import {
+  AUTONOMOUS_GITHUB_PRINCIPAL,
+  MAINTAINER_GITHUB_LOGIN,
+} from "#lib/trust";
 
 const auth = (principalId: string): SessionAuthContext => ({
   attributes: {},
@@ -114,6 +122,131 @@ describe(pullRequestWrite, () => {
   });
 });
 
+describe(assignWrite, () => {
+  it("lets an unattended turn hand the issue to the maintainer", () => {
+    expect(
+      assignWrite(UNATTENDED, { assignees: [MAINTAINER_GITHUB_LOGIN] })
+    ).toBe("not-applicable");
+  });
+
+  it("matches the login case-insensitively, the way GitHub does", () => {
+    expect(assignWrite(UNATTENDED, { assignees: ["PunGrumpy"] })).toBe(
+      "not-applicable"
+    );
+  });
+
+  it("refuses anyone else, alone or alongside the maintainer", () => {
+    // Choosing whose week to spend, from a stranger's text, is not a
+    // judgement this turn is in a position to make.
+    for (const assignees of [
+      ["someone-else"],
+      [MAINTAINER_GITHUB_LOGIN, "someone-else"],
+    ]) {
+      expect(assignWrite(UNATTENDED, { assignees })).toMatchObject({
+        type: "denied",
+      });
+    }
+  });
+
+  it("refuses an assignment that assigns nobody", () => {
+    // It reads as an escalation and performs none, which is the worst of both.
+    expect(assignWrite(UNATTENDED, { assignees: [] })).toMatchObject({
+      type: "denied",
+    });
+    expect(assignWrite(UNATTENDED, ABSENT.input)).toMatchObject({
+      type: "denied",
+    });
+    expect(assignWrite(UNATTENDED, { assignees: "pungrumpy" })).toMatchObject({
+      type: "denied",
+    });
+  });
+
+  it("is uncarded on an attended turn, like the rest of placing an issue", () => {
+    expect(assignWrite(MAINTAINER, { assignees: ["anyone"] })).toBe(
+      "not-applicable"
+    );
+  });
+});
+
+describe(autonomousLabelDenial, () => {
+  it("accepts a taxonomy-shaped label", () => {
+    expect(
+      autonomousLabelDenial({ color: "d73a4a", name: "needs-repro" })
+    ).toBeNull();
+    expect(
+      autonomousLabelDenial({
+        color: "D73A4A",
+        description: "Waiting on a reproduction",
+        name: "needs repro",
+      })
+    ).toBeNull();
+  });
+
+  it("refuses a name that is prose, padded, or multiline", () => {
+    // The turn's input is a stranger's issue body; bounding the shape is what
+    // stops a sentence from landing in the repository's taxonomy.
+    for (const name of [
+      "",
+      " needs-repro",
+      "needs-repro ",
+      "see https://example.com for why",
+      "needs\nrepro",
+      "x".repeat(51),
+    ]) {
+      expect(autonomousLabelDenial({ color: "d73a4a", name })).toContain(
+        "taxonomy-shaped"
+      );
+    }
+  });
+
+  it("requires a six-digit hex color", () => {
+    for (const color of ["", "#d73a4a", "red", "d73a4"]) {
+      expect(autonomousLabelDenial({ color, name: "needs-repro" })).toContain(
+        "hex color"
+      );
+    }
+  });
+
+  it("bounds the description, and allows none at all", () => {
+    expect(autonomousLabelDenial({ color: "d73a4a", name: "ok" })).toBeNull();
+    expect(
+      autonomousLabelDenial({
+        color: "d73a4a",
+        description: "x".repeat(101),
+        name: "ok",
+      })
+    ).toContain("single-line");
+  });
+});
+
+describe(labelWrite, () => {
+  it("lets an unattended turn grow the taxonomy in shape", () => {
+    expect(
+      labelWrite(UNATTENDED, { color: "d73a4a", name: "needs-repro" })
+    ).toBe("not-applicable");
+  });
+
+  it("refuses one that is not, with the reason the model can read", () => {
+    expect(
+      labelWrite(UNATTENDED, { color: "nope", name: "needs-repro" })
+    ).toMatchObject({ type: "denied" });
+  });
+
+  it("is uncarded on an attended turn", () => {
+    expect(labelWrite(MAINTAINER, ABSENT.input)).toBe("not-applicable");
+  });
+});
+
+describe(autonomousWrite, () => {
+  it("lets an unattended turn place a label", () => {
+    expect(autonomousWrite(UNATTENDED)).toBe("not-applicable");
+  });
+
+  it("stays uncarded on an attended turn", () => {
+    expect(autonomousWrite(MAINTAINER)).toBe("not-applicable");
+  });
+});
+
 describe(githubWriteApprovals, () => {
   it("gives every mounted write exactly one policy", () => {
     // A write with no policy falls back to the extension's default, which is
@@ -121,6 +254,9 @@ describe(githubWriteApprovals, () => {
     const names: readonly string[] = [
       ...CONVERSATION_WRITES,
       ...GATED_WRITES,
+      ...AUTONOMOUS_WRITES,
+      "addAssignees",
+      "createLabel",
       "createPullRequest",
     ];
     // No tool classified twice, every mounted write classified once, and the
