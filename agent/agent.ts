@@ -17,9 +17,9 @@ export default defineAgent({
   compaction: { thresholdPercent: 0.75 },
   description: "Baymi, the GitHub maintainer agent",
   limits: {
-    maxOutputTokensPerSession: 20_000,
+    maxOutputTokensPerSession: 250_000,
   },
   model: anthropic(env.MODEL),
-  modelContextWindowTokens: 200_000,
+  modelContextWindowTokens: 1_000_000,
   reasoning: "xhigh",
 });
