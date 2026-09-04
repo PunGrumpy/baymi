@@ -1,11 +1,42 @@
 import { connectGitHubCredentials } from "@vercel/connect/eve";
+import type { GitHubEventContext } from "eve/channels/github";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
+import { escalateFailedTriage } from "#lib/github/escalate";
 import { isAutonomousTriageState, shouldTriageIssue } from "#lib/github/issues";
 import { AUTONOMOUS_GITHUB_PRINCIPAL, isAutonomous } from "#lib/trust";
+
+/**
+ * Hands a failed triage to the maintainer instead of posting the error.
+ *
+ * @remarks
+ * Both failure handlers below route here, and neither coordinates with the
+ * other: every call the escalation makes is idempotent, so a turn failing and
+ * then its session failing escalates once as far as GitHub is concerned. What
+ * the escalation could not do is logged, because the whole point of this path
+ * is that nothing is posted, and an escalation that silently did not happen
+ * would look exactly like one that did.
+ */
+const escalate = async (channel: GitHubEventContext): Promise<void> => {
+  const { issueNumber, owner, repo } = channel.state;
+  if (issueNumber === null) {
+    return;
+  }
+  const failed = await escalateFailedTriage(
+    async (input) => {
+      await channel.github.request(input);
+    },
+    { issueNumber, owner, repo }
+  );
+  if (failed.length > 0) {
+    logFailure("escalation", {
+      message: `could not ${failed.join(" or ")} on ${owner}/${repo}#${issueNumber}`,
+    });
+  }
+};
 
 /**
  * GitHub App credentials: installation tokens from Vercel Connect, webhooks
@@ -56,12 +87,14 @@ export default githubChannel({
   credentials: { ...connectGitHub, webhookSecret: env.GITHUB_WEBHOOK_SECRET },
   events: {
     async "session.failed"(event, channel) {
-      // A failed triage stays quiet: the reporter did not ask for this turn
-      // and should not be handed the agent's error in their own issue.
+      logFailure("session", event);
+      // A failed triage posts nothing: the reporter did not ask for this turn
+      // and should not be handed the agent's error in their own issue. It goes
+      // to the maintainer's notifications instead.
       if (isAutonomousTriageState(channel.state)) {
+        await escalate(channel);
         return;
       }
-      logFailure("session", event);
       await channel.thread.post(
         failureNotice(
           "This session could not recover from an error",
@@ -71,10 +104,11 @@ export default githubChannel({
       );
     },
     async "turn.failed"(event, channel, ctx) {
+      logFailure("turn", event);
       if (isAutonomous(ctx.session.auth.current)) {
+        await escalate(channel);
         return;
       }
-      logFailure("turn", event);
       await channel.thread.post(
         failureNotice(
           "I hit an error working on this",

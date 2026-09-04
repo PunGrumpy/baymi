@@ -79,7 +79,7 @@ export const failureLine = (
 };
 
 /** What died: one turn, or the session around it. */
-type FailureScope = "session" | "turn";
+type FailureScope = "escalation" | "session" | "turn";
 
 /** The same failure as one line for a log, where the provider's text belongs. */
 export const failureDetail = (
