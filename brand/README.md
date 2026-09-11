@@ -17,15 +17,14 @@ Baymax is the reference throughout, since that is where the agent's name and its
 
 The master is 1024x1024, palette-encoded at quality 90, which is visually identical to the original truecolor export and a fifth of its size. It has no alpha channel, and its background is a soft vignette from `#dcdee0` to `#f4f5f4` rather than a flat colour, so it cannot be keyed out: the body's own white falls inside that range. Composite it on a light background, or fade an edge as the banner does.
 
-It has three homes, all of them outside this repository, and all uploaded by hand:
+It has two homes, both outside this repository, and all uploaded by hand:
 
 | Where | What it becomes | Set at |
 | --- | --- | --- |
 | GitHub App `baymiai` | The avatar beside `baymiai[bot]` on every comment it posts | Settings → Developer settings → GitHub Apps → Display information |
-| Slack app | The icon beside its name in the digest thread and in DMs | Slack app settings → Basic Information → Display Information |
-| Linear OAuth app | The agent’s avatar in an Agent Session | Linear settings → API → OAuth applications |
+| Slack app | The icon beside its name in DMs and check-ins | Slack app settings → Basic Information → Display Information |
 
-The GitHub one is worth doing first: it appears on every pull request summary and every answered mention, which is where most people will see the agent at all.
+The GitHub one is worth doing first: it appears on every review and every answered mention, which is where most people will see the agent at all.
 
 Re-export from the master rather than from a copy that has been through an upload, and keep it square.
 
