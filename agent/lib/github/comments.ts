@@ -4,18 +4,17 @@ import { isTrustedGitHubAssociation } from "#lib/trust";
 
 /**
  * The GitHub App's slug, which is the handle people mention to reach the agent
- * and the stem of its login, `baymiai[bot]`. That login is what the
- * self-comment guard below compares against.
+ * and the stem of its login, `baymiai[bot]`.
  *
  * @remarks
  * Deliberately not the agent's name. It calls itself Baymi everywhere, but
- * `baymi` was already registered as a GitHub App, so on GitHub alone it answers
- * to `@baymiai`. `agent/instructions.md` tells the model about the split; this
- * constant is the only place the code knows it.
+ * `baymi` was already registered as a GitHub App, so on GitHub alone it
+ * answers to `@baymiai`. `agent/instructions.md` tells the model about the
+ * split; this constant is the only place the code knows it.
  */
 export const BOT_NAME = "baymiai";
 
-/** Characters that carry meaning in a regex and must be escaped in a literal. */
+/** Characters that have meaning in a regex and must be escaped in a literal. */
 const REGEX_METACHARACTERS = /[.*+?^${}()|[\]\\]/gu;
 
 /**
@@ -30,6 +29,12 @@ export const mentionPattern = (botName: string): RegExp =>
   );
 
 const MENTION_PATTERN = mentionPattern(BOT_NAME);
+
+/** Whether a login is a GitHub App's `[bot]` account, this agent's included. */
+export const isBotLogin = (login: string, botName: string): boolean => {
+  const lower = login.toLowerCase();
+  return lower === botName.toLowerCase() || lower.endsWith("[bot]");
+};
 
 /**
  * Replicates the channel's built-in ignore rules: eve's own marker comments,
@@ -46,10 +51,7 @@ export const isIgnoredComment = (
   if (author === undefined) {
     return false;
   }
-  return (
-    author.type === "Bot" ||
-    author.login.toLowerCase() === `${botName.toLowerCase()}[bot]`
-  );
+  return author.type === "Bot" || isBotLogin(author.login, botName);
 };
 
 /**
