@@ -1,98 +1,161 @@
-import { connectGitHubCredentials } from "@vercel/connect/eve";
-import type { GitHubEventContext } from "eve/channels/github";
+import { getToken } from "@vercel/connect";
+import type { GitHubEventContext, GitHubJsonObject } from "eve/channels/github";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
-import { escalateFailedTriage } from "#lib/github/escalate";
-import { isAutonomousTriageState, shouldTriageIssue } from "#lib/github/issues";
-import { AUTONOMOUS_GITHUB_PRINCIPAL, isAutonomous } from "#lib/trust";
+import { githubCredentials } from "#lib/github/credentials";
+import {
+  isUnattendedReviewState,
+  pullRequestUrl,
+  shouldReviewPullRequest,
+} from "#lib/github/pull-requests";
+import { parseReview, renderReview, splitComment } from "#lib/github/review";
+import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
+import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
 
 /**
- * Hands a failed triage to the maintainer instead of posting the error.
+ * Tells the maintainer on Slack that a review died, and posts nothing on the
+ * pull request.
  *
  * @remarks
- * Both failure handlers below route here, and neither coordinates with the
- * other: every call the escalation makes is idempotent, so a turn failing and
- * then its session failing escalates once as far as GitHub is concerned. What
- * the escalation could not do is logged, because the whole point of this path
- * is that nothing is posted, and an escalation that silently did not happen
- * would look exactly like one that did.
+ * Nobody asked for the review, so its failure is the agent's problem and not
+ * something to put in front of the author, who would read a bot's error on
+ * the pull request they just opened. Silence on the pull request would read
+ * as a clean review, though, which is worse than an error; so the one place
+ * that hears about it is the maintainer's Slack, when one is configured.
+ * What could not be delivered is logged, because a check-in that silently
+ * did not happen looks exactly like one that did.
  */
-const escalate = async (channel: GitHubEventContext): Promise<void> => {
-  const { issueNumber, owner, repo } = channel.state;
-  if (issueNumber === null) {
+const reportFailedReview = async (
+  channel: GitHubEventContext,
+  event: { readonly code?: string }
+): Promise<void> => {
+  const { headSha, owner, pullRequestNumber, repo } = channel.state;
+  if (pullRequestNumber === null || env.SLACK_NOTIFY_CHANNEL === undefined) {
     return;
   }
-  const failed = await escalateFailedTriage(
-    async (input) => {
-      await channel.github.request(input);
+  const repository = `${owner}/${repo}`;
+  const message = checkInMessage({
+    event: { code: event.code, kind: "review-failed" },
+    headSha,
+    now: new Date(),
+    pullRequest: {
+      number: pullRequestNumber,
+      repository,
+      url: pullRequestUrl(repository, pullRequestNumber),
     },
-    { issueNumber, owner, repo }
-  );
-  if (failed.length > 0) {
-    logFailure("escalation", {
-      message: `could not ${failed.join(" or ")} on ${owner}/${repo}#${issueNumber}`,
+  });
+  try {
+    const token = await getToken(env.SLACK_CONNECTOR, {
+      subject: { type: "app" },
     });
+    const delivery = await postSlackMessage({
+      message,
+      target: env.SLACK_NOTIFY_CHANNEL,
+      token,
+    });
+    if (!delivery.ok) {
+      logFailure("notice", { message: delivery.error });
+    }
+  } catch (error) {
+    logFailure("notice", { message: String(error) });
   }
 };
 
 /**
- * GitHub App credentials: installation tokens from Vercel Connect, webhooks
- * verified against the App's own secret.
+ * Posts the turn's reply: as a GitHub review with inline comments when the
+ * reply is one, as a timeline comment otherwise.
  *
  * @remarks
- * The App posts its webhooks straight at `/eve/v1/github` rather than through
- * Connect's trigger forwarder. Forwarding is metered per delivery, and this
- * repository's own CI and review traffic runs about sixteen times the Hobby
- * allowance on `issue_comment` alone; the events are identical either way, so
- * the forwarder was buying nothing but the bill.
+ * Replaces eve's built-in `message.completed` handler, which posts every
+ * reply as a comment. A reply that parses as a review with placed findings
+ * becomes one `POST /pulls/{number}/reviews` with `event: COMMENT`, so each
+ * finding sits on its line and GitHub counts the unresolved threads. The
+ * verdict stays a person's: the event is fixed here and never comes from
+ * the model.
  *
- * `connectGitHubCredentials` returns a `webhookVerifier` that checks the Vercel
- * OIDC signature Connect attaches on the way out. A webhook that came straight
- * from GitHub does not carry one, and eve skips the `webhookSecret` path
- * entirely whenever a verifier is present, so the verifier is dropped here
- * rather than left in place to reject every delivery. `installationToken` is
- * untouched: token minting, rotation, and tenancy stay inside Connect, and
- * there is still no App private key in this deployment.
+ * GitHub answers 422 when a line is not part of the diff. A finding the
+ * model placed wrongly must not lose the whole review, so on any failure
+ * the reply is posted as an ordinary comment instead and the failure is
+ * logged.
  */
-const { webhookVerifier: _connectForwarderVerifier, ...connectGitHub } =
-  connectGitHubCredentials(env.GITHUB_CONNECTOR);
+const postReply = async (
+  channel: GitHubEventContext,
+  message: string
+): Promise<void> => {
+  const { headSha, owner, pullRequestNumber, repo } = channel.state;
+  const review = pullRequestNumber === null ? null : parseReview(message);
+  if (review !== null && review.findings.length > 0) {
+    const rendered = renderReview(review, headSha);
+    const body: GitHubJsonObject =
+      headSha === null
+        ? {
+            body: rendered.body,
+            comments: rendered.comments.map((comment) => ({ ...comment })),
+            event: "COMMENT",
+          }
+        : {
+            body: rendered.body,
+            comments: rendered.comments.map((comment) => ({ ...comment })),
+            commit_id: headSha,
+            event: "COMMENT",
+          };
+    try {
+      await channel.github.request({
+        body,
+        method: "POST",
+        path: `/repos/${owner}/${repo}/pulls/${pullRequestNumber}/reviews`,
+      });
+      return;
+    } catch (error) {
+      logFailure("review", { message: String(error) });
+    }
+  }
+  for (const chunk of splitComment(message)) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- chunks are posted in order
+    await channel.thread.post(chunk);
+  }
+};
 
 /**
- * GitHub channel: @mentions on issues and pull requests, answered in-thread as
- * `baymiai`, and an unattended first reply on issues opened by people outside
- * the repository.
+ * GitHub channel: a security review of every pull request opened on a
+ * repository the App is installed on, and answers to `@baymiai` mentions
+ * from people the repository trusts.
  *
  * @remarks
- * - Credentials are brokered by Vercel Connect. The connector UID comes from
- *   `GITHUB_CONNECTOR`; tokens are resolved per call and never exposed to the
- *   model. Inbound webhooks arrive straight from GitHub and are checked against
- *   `GITHUB_WEBHOOK_SECRET`; see the credentials above for why.
+ * - `onPullRequest` starts the unattended review. The session runs under the
+ *   constructed reviewer principal rather than as the author, so every gate
+ *   in `agent/lib/` can recognize it: writes are refused, memory is off, and
+ *   the reply is the only output it may produce. The diff arrives in context
+ *   and eve checks the head commit out into the sandbox before the
+ *   first model call.
  * - `onComment` replaces the built-in mention gate with
- *   `shouldDispatchComment`, which keeps the default mention and ignore rules
- *   and adds the authorization check from `agent/lib/trust.ts`: only a
- *   commenter the repo trusts (owner, member, or collaborator) starts a
- *   session. Mentions from anyone else are acknowledged without one, so
- *   arbitrary accounts on a public repo cannot drive the agent's write tools.
- * - There is no `onPullRequest`, `onCheckSuite`, or `onWorkflowRun` hook. A
- *   pull request opening is not a request for anything: the agent answers on a
- *   PR when someone mentions it there, which arrives through `onComment` like
- *   any other mention. Every reply on this channel is the turn's own completed
- *   message, which the channel posts into the thread.
+ *   `shouldDispatchComment`, which keeps the mention and ignore rules and
+ *   adds the trust check: only an owner, member, or collaborator starts a
+ *   session. Mentions from anyone else are acknowledged without one.
+ * - Every reply on this channel is the turn's own completed message, which
+ *   `postReply` submits as a review when it is one and posts as a comment
+ *   otherwise. The agent never calls a comment tool to answer where it
+ *   already is.
+ * - Failures on an attended turn are posted as a short notice with an error
+ *   code; failures on a review go to Slack instead (see above).
  */
 export default githubChannel({
   botName: BOT_NAME,
-  credentials: { ...connectGitHub, webhookSecret: env.GITHUB_WEBHOOK_SECRET },
+  credentials: githubCredentials,
   events: {
+    async "message.completed"(event, channel) {
+      if (event.finishReason === "tool-calls" || !event.message) {
+        return;
+      }
+      await postReply(channel, event.message);
+    },
     async "session.failed"(event, channel) {
       logFailure("session", event);
-      // A failed triage posts nothing: the reporter did not ask for this turn
-      // and should not be handed the agent's error in their own issue. It goes
-      // to the maintainer's notifications instead.
-      if (isAutonomousTriageState(channel.state)) {
-        await escalate(channel);
+      if (isUnattendedReviewState(channel.state)) {
+        await reportFailedReview(channel, event);
         return;
       }
       await channel.thread.post(
@@ -105,8 +168,8 @@ export default githubChannel({
     },
     async "turn.failed"(event, channel, ctx) {
       logFailure("turn", event);
-      if (isAutonomous(ctx.session.auth.current)) {
-        await escalate(channel);
+      if (isUnattended(ctx.session.auth.current)) {
+        await reportFailedReview(channel, event);
         return;
       }
       await channel.thread.post(
@@ -120,14 +183,15 @@ export default githubChannel({
   },
   onComment: (ctx, comment) =>
     shouldDispatchComment(comment) ? { auth: defaultGitHubAuth(ctx) } : null,
-  onIssue: (ctx, issue) =>
-    shouldTriageIssue(issue, ctx.sender.login, BOT_NAME)
+  onPullRequest: (ctx, pullRequest) =>
+    shouldReviewPullRequest(pullRequest, ctx.sender, BOT_NAME)
       ? {
           auth: {
             ...defaultGitHubAuth(ctx),
-            principalId: AUTONOMOUS_GITHUB_PRINCIPAL,
+            principalId: REVIEWER_PRINCIPAL,
             principalType: "service",
           },
+          title: `Security review: ${ctx.repository.fullName}#${pullRequest.pullRequestNumber}`,
         }
       : null,
 });

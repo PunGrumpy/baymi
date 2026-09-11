@@ -7,40 +7,32 @@ import { createPostHogDrain } from "evlog/posthog";
 import type { DrainDestination } from "#lib/drains";
 import { createFanOutDrain } from "#lib/drains";
 import { env } from "#lib/env";
-import { TURN_EVENT } from "#lib/usage";
+
+/** The PostHog event one turn becomes. */
+export const TURN_EVENT = "baymi_turn";
 
 /**
- * One evlog wide event per turn: who called, on which channel, how many tokens
- * it took, which tools ran, and how it ended.
+ * One evlog wide event per turn: who called, on which channel, how many
+ * tokens it took, which tools ran, and how it ended.
  *
  * @remarks
- * eve's own Agent Runs already show a turn in the Vercel dashboard, and this
- * does not replace them. What it adds is a record the agent can read back: the
- * model answers through a gateway of the operator's choosing, so nothing
- * upstream counts its tokens, and the weekly `cost-watchdog` sweep has no
- * source but the one this hook writes.
- *
- * `message: "omit"` is evlog's default and stays. A turn carries issue bodies,
+ * `message: "omit"` is evlog's default and stays. A turn includes diffs,
  * comments, and Slack messages other people wrote, so the event records the
  * shape of a turn (counts, durations, tool names, outcome) and never its
  * content. The identity is `eve.caller.principalId`, a GitHub or Slack id
- * rather than a name or an address; evlog records neither `subject` nor
- * `attributes`, which is where a channel would put those.
+ * rather than a name.
+ *
+ * The model answers through a gateway of the operator's choosing, so nothing
+ * upstream counts its tokens; this is the only record of what a week of
+ * reviews cost.
  */
-
-/** The PostHog destination, configured from this agent's own environment. */
 const posthogDrain = (apiKey: string) => {
   const config: PostHogConfig = {
     apiKey,
-    // Volume groups by whoever triggered the turn.
     distinctIdField: "eve.caller.principalId",
     eventName: TURN_EVENT,
-    // Events rather than logs: at this volume the per-GB saving is irrelevant,
-    // and only an event can be charted, alerted on, and queried back by the
-    // weekly report.
     mode: "events",
-    // Dotted keys, which is what the PostHog UI filters and breaks down by; a
-    // nested object is one opaque property there.
+    // Dotted keys, which is what the PostHog UI filters and breaks down by.
     // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- adapter option name
     recordShape: "compact",
   };
@@ -52,8 +44,7 @@ const posthogDrain = (apiKey: string) => {
 
 const destinations: DrainDestination[] = [];
 // The filesystem drain is for `eve dev`: Vercel's filesystem is read-only
-// outside /tmp, and the adapter disables itself there after one warning, so a
-// deployed build leaves it out rather than letting it fail quietly.
+// outside /tmp, so a deployed build leaves it out.
 if (!process.env.VERCEL) {
   destinations.push(createFsDrain());
 }
@@ -64,11 +55,8 @@ if (env.POSTHOG_API_KEY) {
 const options: EvlogEveOptions = {
   init: {
     env: { service: "baymi" },
-    // Pretty-printing is for a terminal, and production has none.
     pretty: !process.env.VERCEL,
   },
-  // One extra event per session, rolling its turns up, so a week reads per
-  // session as well as per turn.
   sessionEvent: true,
 };
 const drain = createFanOutDrain(destinations);

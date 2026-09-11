@@ -16,12 +16,6 @@ export default defineEval({
         "introduces itself as Baymi, not as the GitHub handle"
       )
     );
-    t.check(t.reply, includes(/github/iu));
-    // The agent was renamed from Kody; the old name resurfacing means a
-    // fragment or skill still carries it.
-    t.check(
-      t.reply,
-      satisfies((reply) => !/kody/iu.test(String(reply)), "never says Kody")
-    );
+    t.check(t.reply, includes(/security|review/iu));
   },
 });

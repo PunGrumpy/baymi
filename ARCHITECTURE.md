@@ -1,137 +1,104 @@
-# ARCHITECTURE.md
-
-A map of how this agent is put together, for humans and AI agents working in the repo. Keep it current as the codebase evolves.
+# Architecture
 
 ## Project identification
 
-- **Name:** Baymi (`baymi`), GitHub maintainer agent, ported from the Kody eve template. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
+- **Name:** Baymi (`baymi`), a security-minded companion for one person's repositories, built on eve. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
 - **Maintainer:** PunGrumpy
 - **License:** MIT
-- **Last updated:** 2026-09-03
+- **Last updated:** 2026-09-11
 
 ## Overview
 
-A personal GitHub maintainer agent built on the [eve](https://eve.dev) agent framework, made for freelancers and solo maintainers: one person, one repo, one Slack workspace. Every Monday a scheduled session composes a digest of the configured repo's open issues and posts it to the configured Slack channel; the reader replies in the thread to act on it ("create Linear issues for #1 and #2 and assign them to me") and the agent follows through, confirming in the thread with links. Between digests Baymi keeps working the repo: it answers @mentions on GitHub issues and pull requests in-thread, posts one unattended first reply on issues opened by people outside the repository, and handles the issues users delegate or mention it on in Linear (Agent Sessions, e.g. "send me a summary of this issue", delivered as a Slack DM). GitHub access goes through the mounted GitHub Tools extension; Linear is an MCP connection; per-user preferences live in Vercel Blob. The agent runs on Vercel, the same way locally (`eve dev`) and in production (`eve deploy`).
+Baymi watches the repositories its GitHub App is installed on. When a pull request opens on one of them, it reads the diff and the checkout and posts one security review as a comment. When the maintainer mentions it on an issue or pull request, it answers there. In Slack it answers the maintainer about those repositories, remembers how the maintainer likes things done, and posts on its own, once and briefly, when a review finds something that should not wait.
 
-eve discovers every capability from the filesystem under `agent/`. There is no central registry or wiring file: a tool's name is its filename, a connection's name is its filename, and so on.
+It never changes a repository and never runs its code. Every write beyond its reply either runs because a trusted person asked or waits on an approval card.
+
+eve discovers every capability from the filesystem under `agent/`. There is no central registry or wiring file: a tool's name is its filename, a memory slot's name is its filename, and so on.
 
 ## Project structure
 
 ```text
 agent/
-  agent.ts                  # model configuration (defineAgent): compaction + session token limits
-  instructions.md           # the always-on system prompt: identity, voice, how a task starts, grounding
+  agent.ts                  # model configuration (defineAgent): reasoning, compaction, session output cap
+  instructions.md           # the always-on system prompt: identity, voice, read-only posture, grounding, writes and memory
   instructions/
-    first-responder.ts      # dynamic fragment: injected only on unattended triage turns; read plus one reply, nothing else
-    github.ts               # dynamic fragment: the reply is the comment, mentions on issues/PRs, pull requests
-    linear.ts               # dynamic fragment: Agent Sessions
-    slack.ts                # dynamic fragment: answering in Slack, the weekly digest, digest thread replies
+    github.ts               # fragment for GitHub sessions: the reply is the comment, mentions, pull requests
+    review.ts               # fragment injected on unattended review turns only: what the turn may do, what to write
+    slack.ts                # fragment for Slack sessions: formatting, preferences, no checkout here
   channels/
-    github.ts               # eve GitHub channel; installation token via Vercel Connect, webhooks straight from the App and verified with GITHUB_WEBHOOK_SECRET (Connect's trigger forwarder is metered per delivery); botName `baymiai` (the App slug), @mentions reply in-thread (gate in lib/github/comments.ts), onIssue starts the unattended triage turn (gate in lib/github/issues.ts); no PR or CI hook, every reply is the turn's own message posted by the channel
-    linear.ts               # eve Linear channel via Vercel Connect; Agent Sessions, onAgentSession injects requester email; dev-only webhook-trust flag
-    slack.ts                # eve Slack channel via Vercel Connect; @mentions, DMs, and follow-ups in subscribed threads
-    eve.ts                  # inbound route auth; dev-only localDevUser shim (user principal)
-  connections/
-    linear.ts               # Linear MCP server (mcp.linear.app); app-scoped auth via Vercel Connect; tools.allow list: reads plus save_issue/save_comment, no deletes or structural writes
-  schedules/
-    weekly-digest.ts        # cron "0 9 * * 1" (UTC), handler form: one to(slack) send per DIGEST_REPOS entry, each its own thread; structure comes from the digest-format skill
-    upstream-sync.ts        # cron "0 7 * * 1": what moved in eve, Connect, the GitHub extension; procedure in the upstream-sync skill
-    self-review.ts          # cron "0 8 * * 3": the agent's own surface, coherence and reach; procedure in the self-review skill
-    repo-health-sweep.ts    # cron "0 8 * * 5": documentation against code, conventions, quiet issues; procedure in the repo-health-sweep skill
-    cost-watchdog.ts        # cron "0 10 * * 1": last week's turns and tokens, read back from the wide events
-  instrumentation.ts        # exports the AI SDK's spans to PostHog as $ai_generation; metadata only, no prompts or completions
+    github.ts               # onPullRequest starts the unattended review; onComment gates mentions on trust; message.completed submits a parsed reply as a GitHub review; review failures go to Slack, not the PR
+    slack.ts                # DMs, mentions, and follow-ups in threads it owns; humans of the workspace only
+    eve.ts                  # inbound auth for the HTTP route (eve dev, evals, direct API calls)
+  extensions/
+    github.ts               # @github-tools/eve-extension; mounts the 11 tools from lib/github/tools.ts with inline approval policies
+  memory/
+    file.ts                 # eve's file memory on Vercel Blob; one shared "maintainer" scope, disabled on unattended turns
+  tools/
+    list_installed_repositories.ts  # the repositories the App is installed on, which is the agent's whole scope
+    notify_maintainer.ts    # dynamic: the one-line Slack check-in, present only on unattended reviews when a target is configured
+    read_file.ts, load_skill.ts, ask_question.ts  # the three defaults kept; agent.ts sets defaultTools: false
+    glob.ts, grep.ts        # framework read tools, opted in
   hooks/
     evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
-  sandbox.ts                # sandbox backend (Vercel Sandbox); bootstrap pins the committer identity (lib/github/identity.ts), marks /workspace git-safe, and installs agent-browser + the before-and-after CLI; keeps one snapshot per sandbox so rebuilds and suspends stop filling the plan's quota
-  subagents/
-    researcher/             # agent.ts + instructions.md; fresh-context web researcher (web tools only)
-  extensions/
-    github.ts               # @github-tools/eve-extension; mounts the 24 tools from lib/github/tools.ts as `github__<toolName>`, with the per-session approval map from lib/github/approval.ts
-  tools/
-    git_push.ts               # pushes a sandbox branch; credential brokered at the firewall, main/master and unfollowed repos refused, withheld from unattended turns
-    send_slack_dm.ts          # Slack DM by email lookup; dynamic, withheld from Slack sessions (lib/slack.ts) so a reply is never delivered twice
-    usage_report.ts           # reads the agent's own turns back out of PostHog; dynamic, needs the PostHog key and project id, withheld from unattended turns
-    capture_before_after.ts   # screenshots a page before and after (or the after alone for a new page) in the sandbox, uploads the frames to Blob, returns the marked comparison block; host allow-list, withheld from unattended turns
-    get_user_preferences.ts   # Blob: load this user's saved preferences
-    save_user_preferences.ts  # Blob: save standing preferences (principal-scoped)
-    clear_user_preferences.ts # Blob: clear this user's preferences (approval-gated)
+  sandbox.ts                # Vercel Sandbox; marks /workspace git-safe so the channel checkout succeeds; one snapshot per sandbox
+  skills/
+    security-review/        # the review procedure, severity scale, and format; references/checklist.md lists the patterns by kind of change
   lib/                      # the only place logic lives; every module has a colocated *.test.ts
-    digest.ts               # DIGEST_REPOS parsing and the per-repo digest prompt
-    drains.ts               # fan-out for wide events: one failing destination never takes the others, or the turn, with it
-    usage.ts                # the turn event name, the usage HogQL query and its parser
-    capture.ts              # which hosts may be captured, the pair command (CLI) and the single-frame command (agent-browser), the CLI's saved-path contract, and the marked comparison block
-    schedule.ts             # the shared sweep preamble and the Slack delivery every maintenance schedule uses
-    anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL
     env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
-    instructions.ts         # loadsOnChannel: which system-prompt fragment a session sees
-    slack.ts                # exposesSlackDmTool: which sessions see the DM tool
-    failure.ts              # the message a channel posts when a turn or session dies
-    trust.ts                # authorization, expressed once: trusted author_associations, the maintainer's GitHub login, the unattended-triage principal, and the schedule's app principal
-    user-preferences.ts     # principal-scoped Blob key + reserved-prefix guard (shared helper)
+    anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL
+    trust.ts                # authorization, expressed once: trusted associations, the reviewer principal, Slack humans
+    instructions.ts         # channelName and loadsOnChannel: which fragment a session sees
+    failure.ts              # the notices a channel posts when a turn or session dies, and the log line that keeps the detail
+    drains.ts               # fan-out for wide events: one failing destination never takes the turn with it
     github/
-      approval.ts           # which GitHub writes need a card, decided from the session: unattended turns are refused, an attended turn's comment and labels run uncarded
-      tools.ts              # the 24 GitHub tools this agent mounts, reads and writes listed apart, and why the rest of the preset is not carried
       comments.ts           # bot name, mention pattern, ignore rules, and the dispatch decision for a comment
-      issues.ts             # whether a new issue starts an unattended triage turn, and how a failed one is recognized
-      escalate.ts           # what a failed triage does instead of posting: label the issue, assign the maintainer, report what did not land
-      push.ts               # branch and repository validation, and the firewall policy that brokers the push credential
-      identity.ts           # the `baymiai[bot]` login, its no-reply address, and the git config the sandbox commits under
-  skills/                   # load-on-demand procedures, routed by description frontmatter
-    writing-quality/        # AI-tells, plain English, web-content specs
-    digest-format/          # weekly digest structure: grouping, needs-attention/stale criteria, one-line summaries
-    triaging-issues/        # triage playbook: dedupe, repo-native labels, ask-or-close, repro requests
-    github-linear-bridging/ # bridged Linear issues: dedupe check, backlinks, team choice, two-way links
-    shipping-a-change/      # sandbox checkout to pull request: failing test first, the repo's own checks, honest PR body
-    upstream-sync/          # the weekly upstream check: what shipped, what is worth taking, which workaround comes out with it
-    self-review/            # the agent's own surface, in two halves: what drifted, and what is missing
-    repo-health-sweep/      # the repository's prose against its code, its stated conventions, and issues that went quiet
-    cost-watchdog/          # the weekly usage read: which numbers, against which week, and what to do when a number is missing
-    before-after/           # visual evidence on a pull request: what before and after are, and the fallback when a preview is protected
-evals/                      # `eve eval`: scored checks against a live model, tagged fast / needs-connect
-  lib/posthog.ts            # turns a run summary into `baymi_eval` events; colocated test
-  reporters/posthog.ts      # EvalReporter that posts them, attached in evals.config.ts when a key exists
+      pull-requests.ts      # which pull request events start a review, how a review session is recognized, the PR a session is anchored to
+      tools.ts              # the 11 GitHub tools this agent mounts, reads and writes listed apart
+      review.ts             # the reply-to-review parser and renderer: finding blocks to inline comments, hidden markers, comment splitting
+      approval.ts           # who answers for a write: refused when unattended, uncarded or carded otherwise
+      credentials.ts        # Connect installation token plus the App's own webhook secret; token minting for the tool
+      installation.ts       # GET /installation/repositories, paged and parsed
+    slack/
+      notify.ts             # the check-in card (Block Kit, Vercel's deployment-message shape) and the two-call Slack post (opens a DM when the target is a person)
+evals/                      # `eve eval`: scored checks against a live model, all tagged fast
 docs/
   capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
+  notes.md                  # runtime and tooling behaviour that cost time to discover
 ```
 
 ## Core components
 
-| Component | Lives in | eve primitive | Responsibility |
+| Component | Lives in | eve building block | Responsibility |
 | --- | --- | --- | --- |
-| GitHub surface | `agent/channels/github.ts` | Channel | Receives `@baymiai` mentions on issues/PRs and replies in-thread; a custom `onComment` hook delegates to `shouldDispatchComment` (`agent/lib/github/comments.ts`), which dispatches only for commenters whose `author_association` is OWNER, MEMBER, or COLLABORATOR; an `onIssue` hook starts the unattended triage turn. Nothing dispatches on `pull_request` or CI events: a PR opening is not a request, and the agent acts on one when someone mentions it there. A failed triage posts nothing and escalates instead (`agent/lib/github/escalate.ts`): it labels the issue `baymi:needs-attention` and assigns the maintainer, so the reporter never reads the agent's error on the issue they just filed and the maintainer still hears about it. Both `turn.failed` and `session.failed` route there, and every call it makes is idempotent, so the two firing together escalate once. Every reply on this channel is the turn's completed message, which the channel posts into the thread; the agent never calls a comment tool to answer where it already is |
-| Linear surface | `agent/channels/linear.ts` | Channel | Linear Agent Sessions: users delegate/mention the agent on an issue; the `onAgentSession` hook injects the requester's name and email as session context; elicitations render natively |
-| Slack surface | `agent/channels/slack.ts` | Channel | @mentions and DMs, plus follow-up messages in a thread that already has an active session (`isSubscribed()`); bot-authored messages are dropped. Thread continuation needs `message.channels`/`channels:history` on the connector; without them mentions still work |
-| Route auth | `agent/channels/eve.ts` | Channel | Inbound auth for the eve route; the `localDevUser` shim upgrades the dev principal to a user so user-scoped features work in the dev TUI |
-| Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One evlog wide event per turn (`evlog/eve`), carrying identity, channel, tokens, tool executions and outcome, and no message content. Drains to the filesystem in `eve dev` and to PostHog as a `baymi_turn` event when `POSTHOG_API_KEY` is set. It is not a duplicate of eve's Agent Runs: the model answers through a gateway of the operator's choosing, so Vercel reports `costUsd: null` for every run and this is the only record the agent can read back |
-| Visual evidence | `agent/tools/capture_before_after.ts` + `agent/lib/capture.ts` + the `before-after` skill | Tool (dynamic) | Screenshots a page before and after a change, or the after alone when the page is new, for the body of a pull request against a repository that deploys a site (`logixlysia`, `docker-doctor`). Returns the comparison as a block fenced in `<!-- before-and-after:start/end -->` (the upstream skill's markers) over public Blob URLs. The pinned CLI captures a pair, `agent-browser` alone captures a lone frame, and full-page pairs render as an HTML table with cells pinned to the top so two pages of different length line up. The sandbox template carries `agent-browser` and the `@vercel/before-and-after` CLI that drives it; the `@agent-browser/eve` extension is deliberately **not** mounted, so no `browser__*` tool is carried in any prompt. Capture targets are limited to `*.vercel.app` and `localhost`, and hosting is this agent's own Blob store rather than the CLI's default public paste host or `gh --attach`, which refuses an App installation token (`docs/notes.md`) |
-| Usage report | `agent/tools/usage_report.ts` + `agent/lib/usage.ts` | Tool (dynamic) | Reads those events back with one HogQL query, a row per day and model: turns, tokens, failed turns. Tokens rather than dollars: the gateway reports no price, and a rate applied from memory is a number the next report cannot reproduce. Resolved per turn, so it appears only where the PostHog key and project id are both configured, and never on an unattended triage turn |
-| Maintenance sweeps | `agent/schedules/{upstream-sync,self-review,repo-health-sweep,cost-watchdog}.ts` + `agent/lib/schedule.ts` | Schedules | Four weekly passes the agent runs on its own clock, delivered to the digest Slack channel through `maintenanceRun`: Monday 07:00 UTC what moved upstream, Monday 10:00 UTC what last week took in turns and tokens, Wednesday 08:00 UTC its own surface, Friday 08:00 UTC the repository's documentation against its code. Each carries only a cadence and a one-line task; the procedure is the skill it names. They run under eve's app principal (`isScheduleAppAuth`), which is why a draft pull request from one skips the approval card: nobody is watching Slack when a sweep fires, so a card there parks the session instead of confirming anything |
-| Weekly digest | `agent/schedules/weekly-digest.ts` | Schedule | Cron `0 9 * * 1` (Mondays 09:00 UTC), handler form: `to(slack, { channelId })` starts the session on the Slack channel, so the digest is the session's final message and thread replies resume it; structure comes from the `digest-format` skill |
-| Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model loop and behavior; the root model id comes from `MODEL` and resolves through the provider in `agent/lib/anthropic.ts`, which speaks the Anthropic protocol against whatever `ANTHROPIC_BASE_URL` points at. `reasoning` and `modelContextWindowTokens` are set in `agent/agent.ts` alongside it, so a model swap is an environment change but a reasoning or context-window change is a code one. The root prompt is always on; the fragments under `agent/instructions/` resolve at `session.started` and load only on their own channel (and in full on the HTTP session surface) |
-| GitHub access | `agent/extensions/github.ts` + `agent/lib/github/tools.ts` | Extension | `@github-tools/eve-extension` via Vercel Connect, mounted under the `github` namespace so tools are exposed as `github__<toolName>`. An explicit `include` of 24 tools rather than the `maintainer` preset's 79: every tool is carried in the prompt on every turn, and the preset costs about 21,800 tokens against this list's 7,600, most of it capability no instruction or skill ever reaches for. Three of the omissions are tools the instructions forbid outright (`createOrUpdateFile`, `createLabel`, `createPullRequestReview`). Approval comes from `agent/lib/github/approval.ts`, which decides per session rather than per tool, and for two of them per payload: an attended turn skips the card on comments, labels and assignment, and an unattended triage turn is refused every write except placing a label, creating one whose payload is taxonomy-shaped, and assigning `MAINTAINER_GITHUB_LOGIN` and nobody else (`agent/lib/trust.ts`). Those last two are checked against the tool input rather than the prompt, because the turn's input is a stranger's issue body |
-| Linear access | `agent/connections/linear.ts` | Connection (MCP) | Create issues, comment, and cross-reference Linear; app-scoped auth via Vercel Connect (`linearAuth`, defined in the same file) |
-| Slack DM tool | `agent/tools/send_slack_dm.ts` | Tool (dynamic) | Sends a DM to a workspace member resolved by email (`users.lookupByEmail` → `conversations.open` → `chat.postMessage`), app-scoped via Connect; delivers summaries requested from other surfaces, mainly Linear sessions. Resolved at `session.started` and withheld from Slack sessions, the weekly digest included, so the agent cannot deliver the same message twice |
-| User preferences | `agent/tools/{get,save,clear}_user_preferences.ts` + `agent/lib/user-preferences.ts` | Tools | Per-user standing preferences in Blob, keyed to the resolved principal (never model input) |
-| Skills | `agent/skills/` | Skill | Load-on-demand procedures: `writing-quality` (prose rules, loaded before drafting for humans), `digest-format` (the weekly digest's structure and criteria), `triaging-issues` (the triage playbook), `github-linear-bridging` (bridged-issue conventions and cross-links), `shipping-a-change` (checkout to pull request), and one per scheduled sweep (`upstream-sync`, `self-review`, `repo-health-sweep`) |
-| Researcher subagent | `agent/subagents/researcher/` | Subagent | Fresh-context web research for facts the repo and tracker don't hold; uses framework `web_search`/`web_fetch`, returns cited findings + gaps |
+| Pull request review | `agent/channels/github.ts` + `agent/lib/github/pull-requests.ts` + `agent/lib/github/review.ts` + `agent/instructions/review.ts` + the `security-review` skill | Channel hook | `onPullRequest` dispatches on `opened` and `ready_for_review`, skipping drafts and bots (`shouldReviewPullRequest`). The session runs under the constructed reviewer principal `github:baymiai` (`agent/lib/trust.ts`), which every gate recognizes. GitHub writes are refused, memory is off, and the reply is the only output the turn may produce. eve puts the diff in context and checks the head commit out into the sandbox before the first model call. The skill holds the procedure and the format. The channel's `message.completed` handler parses the reply (`parseReview`) and submits it as one GitHub review with `event: COMMENT`: each finding becomes an inline comment on the line its `File:` line names, with a `<details>` block for the reasoning, an optional `suggestion` block, and a hidden `<!-- baymi:finding -->` marker; the rest becomes the review body. A reply that does not parse, or a review GitHub rejects, is posted as an ordinary comment. A review that fails posts nothing on the pull request and posts to Slack instead, so a missing review is not mistaken for a clean one |
+| Mentions | `agent/channels/github.ts` + `agent/lib/github/comments.ts` + `agent/instructions/github.ts` | Channel hook | `@baymiai` from an owner, member, or collaborator starts an attended session on the issue or pull request; everyone else is acknowledged without one. A second look reads the earlier findings back through `listPullRequestReviewThreads`, answers each in its thread with `replyToReviewComment` (fixed, still open, withdrawn), and puts new findings in the reply so they get their own inline comments. The channel posts the turn's completed message as the reply. The comment tools exist for writing on some other thread |
+| Slack companion | `agent/channels/slack.ts` + `agent/instructions/slack.ts` | Channel | DMs, mentions, and follow-ups in threads the agent owns, from humans of the workspace only (`isSlackHuman`, pinned to `SLACK_TEAM_ID` when set). There is no checkout here. The GitHub tools read pull requests, issues, and files, and the agent directs a request for a full review back to the pull request thread |
+| Check-ins | `agent/tools/notify_maintainer.ts` + `agent/lib/slack/notify.ts` | Tool (dynamic) | One Block Kit card to `SLACK_NOTIFY_CHANNEL`, a channel or the maintainer's own DM, on a critical or high finding. The card takes the shape of Vercel's deployment messages: a status dot and a bold linked headline, the summary and a `sha | repository | via Baymi security review | time`line in a colored bar, and two link buttons, "View pull request" and "Files changed". A one-line`text` fallback rides along for notifications. Resolved per turn and present only on an unattended review when a target is configured. The tool reads the pull request it names from the auth the channel minted at dispatch (`pullRequestFromAuth`), never from the model, so a diff cannot redirect the check-in. The channel's failure handlers send the review-failed notice through the same delivery path |
+| Memory | `agent/memory/file.ts` | Memory | eve's `fileMemory()` on Vercel Blob, one document under a constant `maintainer` scope. The same person is `github:<id>` on a pull request and `slack:<team>:<id>` in a DM, and a preference stated in one place holds in the other. The scope resolves to `null` on unattended turns, which disables recall and the save tools there, so a diff can never write into what every later turn reads |
+| Scope | `agent/tools/list_installed_repositories.ts` + `agent/lib/github/installation.ts` | Tool | There is no configured repository list. GitHub delivers webhooks and mints tokens only for repositories the App is installed on, and this tool reads that set back so the agent can say what it watches and refuse what it does not |
+| GitHub access | `agent/extensions/github.ts` + `agent/lib/github/tools.ts` + `agent/lib/github/approval.ts` | Extension | Eleven tools under the `github` namespace: seven reads and four writes. `addIssueComment`, `addPullRequestComment`, and `replyToReviewComment` run uncarded for a trusted person and are refused on an unattended turn; `createIssue` asks on a card. The review itself is not a tool: the channel submits it with a fixed `COMMENT` event, so nothing mounted can approve or request changes, edit a file, label, assign, or close |
+| Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model comes from `MODEL` through `agent/lib/anthropic.ts`; reasoning stays high because a review is one long careful read. The root prompt is always on. Fragments resolve at `session.started` and load only on their own channel, and all of them load on the HTTP route, which exists to exercise the others |
+| Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One `baymi_turn` event per turn: identity, channel, tokens, tools, outcome, never content. The model answers through a gateway of the operator's choosing, so this is the only record of what a week of reviews cost |
 
-Channels and the connections are I/O boundaries. Tools run in the app runtime (full `process.env`). Skills only add instructions to context; they are not an execution surface. The `researcher` subagent runs in its own isolated child session, fresh context with none of the root's skills, connections, or tools, so the root packs everything it needs into the call `message`.
+## Why it is read-only
+
+The sandbox holds a checkout of whatever pull request last opened, and the pull request came from whoever opened it. eve attaches the installation token to the sandbox's outbound requests to `github.com` for the checkout. A shell that could run the pull request's code could make requests from inside that boundary. So `agent/agent.ts` sets `defaultTools: false`, which removes `bash` and `write_file`, and with them `web_fetch` and `web_search`, because a URL built from an untrusted diff could send a private repository's contents to an outside host in the query string. `agent/tools/` adds back `read_file`, `load_skill`, and `ask_question`, and opts into `glob` and `grep`, which search the filesystem. The review is reasoning over code, and the instructions say so. The agent never claims to have run, tested, or reproduced anything.
+
+`todo` and the built-in `agent` delegation stay off for a smaller reason: the gateway this agent answers through degrades as the tool list grows (`docs/notes.md`), and a review is one pass with no side quests to track.
 
 ## Data flow
 
-1. **Weekly digest:** the schedule's handler starts one session per entry in `DIGEST_REPOS` on the Slack channel with `to(slack, { channelId: DIGEST_SLACK_CHANNEL })`. A send that carries no thread joins no continuation, so each repository lands in its own thread and an issue number in a reply is unambiguous. The agent fetches all open issues on that repository with the `github` tools and composes the digest following the `digest-format` skill (needs attention, recent activity, stale; every issue cited as #N); its final message is delivered into the channel as the digest post.
-2. **Digest thread replies:** a reply in the digest thread reaches the Slack channel's subscribed-thread policy and resumes the session. The agent resolves the referenced issue numbers against GitHub, performs the request (e.g. creates Linear issues via the `linear` connection), and replies in the thread with links.
-3. **Scheduled sweeps:** four cron jobs a week start one Slack session each with a one-line task and the shared preamble from `agent/lib/schedule.ts`. The agent loads the skill the task names, works the pass, and its final message is the report posted to the channel; a reply in that thread resumes the session, so a sweep is the start of a conversation rather than a report that ends. Mechanical fixes ship as a draft pull request through `shipping-a-change` and `git_push`, which the schedule's app principal may open without an approval card as long as it is a draft.
-4. **Linear sessions:** a user delegates/mentions the agent on a Linear issue; the channel injects the issue context, and the `onAgentSession` hook adds the requester's name and email so "send me a summary" needs no follow-up question. The agent works the request, delivering anything asked for directly as a Slack DM via `send_slack_dm` (the requester's email resolves their Slack account); if it still lacks an address it asks in-session (Linear renders elicitations natively) and saves it with the preference tools.
-5. **GitHub mentions:** `@baymiai` on an issue or PR starts a session on the github channel; the agent answers in-thread, cross-referencing Linear through the MCP connection when useful.
-6. **New issue from outside:** the `issues` webhook hits `onIssue`, which starts one unattended turn under the constructed service principal when the author is outside the repository. It reads, and its reply is the comment. Every write tool is refused on that turn (`agent/lib/github/approval.ts`), so an approval card can never be posted into a stranger's issue and park there.
+1. **A pull request opens** on an installed repository. GitHub posts `pull_request` at `/eve/v1/github`; `shouldReviewPullRequest` accepts `opened` and `ready_for_review` from a human, and the channel starts a session under the reviewer principal. eve injects the diff and checks the head commit out. The agent loads `security-review`, reads the diff and the surrounding code, and writes its reply in the skill's format. The channel submits that reply as a GitHub review: one inline comment per finding, on its line, and the summary as the review body. If a finding is critical or high it calls `notify_maintainer` once, and the maintainer gets one line in Slack with a link.
+2. **The maintainer mentions `@baymiai`** on that pull request, or any issue. `shouldDispatchComment` admits owners, members, and collaborators; the session (the same one, on a reviewed pull request) continues under their principal, so memory and the uncarded writes are available and the review fragment is not. The channel posts the reply in the thread.
+3. **The maintainer talks to Baymi in Slack.** A DM, a mention, or a reply in a thread it owns starts or resumes a session. It answers from the GitHub tools, remembers what it is told to keep, and points a request for a full review back at the pull request.
+4. **A review dies.** The channel's failure handler recognizes an unattended review from the state (a pull request with no triggering comment), logs the detail, posts nothing on the pull request, and sends the review-failed line to Slack when a target is configured.
 
 ## Data stores
 
-- **GitHub** (external): the repository and issue tracker the agent digests and triages. All access goes through `@github-tools/eve-extension` with credentials brokered by Vercel Connect; no token in code.
-- **Linear** (external): where actioned issues land and where Agent Sessions run. Access via Linear's MCP server with app-scoped Connect auth (scopes `read`, `write`, `issues:create`, `comments:create`).
-- **Vercel Blob**: per-user preferences under the reserved `user-preferences/<hashed-principal>.md` prefix, reachable only through the principal-scoped preference tools. Authenticated by the project's OIDC token (no `BLOB_READ_WRITE_TOKEN`).
-- **Vercel Sandbox** (`/workspace/skills/...`): holds the seeded skill files the model reads. Not a durable application data store.
+- **GitHub** (external): the repositories and pull requests. All access goes through the eve channel and `@github-tools/eve-extension` with an installation token brokered by Vercel Connect; no token in code.
+- **Slack** (external): the maintainer's workspace. Inbound through the eve channel via Connect; the check-ins post with the same connector's app-scoped token.
+- **Vercel Blob**: the memory document, under eve's file memory prefix, authenticated with the store's token or the project's OIDC. `eve integration setup file-memory` provisions it.
+- **Vercel Sandbox**: the checkout the read tools search. Not a durable store.
 
 There is no application database.
 
@@ -139,56 +106,12 @@ There is no application database.
 
 | Integration | Purpose | Method |
 | --- | --- | --- |
-| GitHub | Issue/PR mentions and newly opened issues in, in-thread replies out; issue reads and triage | eve GitHub channel + `@github-tools/eve-extension` (`maintainer` preset), both taking their installation token from Vercel Connect (`GITHUB_CONNECTOR`); webhooks bypass Connect and are verified with `GITHUB_WEBHOOK_SECRET` |
-| Linear (channel + MCP) | Agent Sessions in; issue creation, comments, and cross-references out | eve Linear channel via Connect (with an `onAgentSession` hook adding the requester's email to context); MCP connection to `mcp.linear.app` with app-scoped auth (`LINEAR_CONNECTOR`) |
-| Slack | @mentions and DMs in, replies in-thread out | eve Slack channel via Vercel Connect (`SLACK_CONNECTOR`), which supplies the bot token and verifies inbound webhooks |
-| Vercel Blob | Per-user preference storage | `@vercel/blob`, OIDC-authenticated |
-| Anthropic-compatible endpoint | Root model access | `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY`, wired in `agent/lib/anthropic.ts` and used by `agent/agent.ts` and the eval judge |
-| Vercel AI Gateway | Subagent model access | `agent/subagents/researcher/agent.ts` sets a bare gateway model id, so the researcher resolves through the linked project's OIDC token rather than the endpoint above |
-| Vercel Sandbox | Isolated runtime that holds seeded skill files | `agent/sandbox.ts` (`vercel()` backend) |
+| GitHub | Pull request events and mentions in, review comments and replies out; reads of pull requests, issues, and files | eve GitHub channel + `@github-tools/eve-extension`, both taking their installation token from Vercel Connect (`GITHUB_CONNECTOR`); webhooks bypass Connect and are verified with `GITHUB_WEBHOOK_SECRET` |
+| Slack | DMs, mentions, and thread replies in; replies and check-ins out | eve Slack channel via Vercel Connect (`SLACK_CONNECTOR`); check-ins through `chat.postMessage` with the connector's app token |
+| Anthropic-compatible endpoint | Model access | `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY`, wired in `agent/lib/anthropic.ts` |
+| Vercel Blob | Memory | eve's `fileMemory()` |
+| PostHog (optional) | Turn telemetry | `evlog/posthog` drain, `POSTHOG_API_KEY` |
 
-## Deployment & infrastructure
+## Deployment
 
-- **Platform:** Vercel. Deploy with `eve deploy` (wraps `vercel deploy --prod`); the raw `vercel deploy` cannot auto-detect the eve framework.
-- **Connectors:** provisioned via `vercel connect create` + `attach`; the Linear trigger points at `/eve/v1/linear` and the Slack trigger at `/eve/v1/slack`. The GitHub connector has no trigger: its App posts to `https://<deployment>/eve/v1/github` directly, subscribed to `issue_comment` and `issues` only, because Connect bills every forwarded delivery and the unhandled `pull_request` and `check_suite` events were half of them.
-- **Environment:** connector UIDs `GITHUB_CONNECTOR`, `LINEAR_CONNECTOR`, and `SLACK_CONNECTOR`, plus `GITHUB_WEBHOOK_SECRET` for the GitHub App's own webhook signature; model access `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`, with `MODEL` for the agent and `EVAL_MODEL` for the eval judge; digest config `DIGEST_REPOS` (comma separated) and `DIGEST_SLACK_CHANNEL`. Blob and the researcher subagent's gateway model both authenticate via the project's OIDC token, so neither carries a key of its own. Every variable above is declared and parsed in one place, `agent/lib/env.ts` (`@t3-oss/env-core` over Zod): nothing has a silent fallback, so a missing or malformed value fails discovery with a single aggregated report instead of an opaque failure at request time.
-- **Local development:** `bun run dev` runs the same runtime in a TUI; `vercel env pull` supplies a short-lived OIDC token. The webhook surfaces (GitHub, Linear, Slack) run against a deployment. Schedules never fire on cadence in dev; trigger the digest once with `POST /eve/v1/dev/schedules/weekly-digest`.
-
-## Security considerations
-
-- **Inbound route auth** (`agent/channels/eve.ts`): `[localDevUser, vercelOidc()]` rejects public browser traffic; channel traffic is authenticated by each connector. `localDevUser` defers the trust decision to the framework's `localDev()` and only upgrades the resolved dev principal to a user, so user-scoped features work from the dev TUI without affecting production.
-- **Outbound auth:** GitHub and Linear credentials are brokered by Vercel Connect; Linear is app-scoped through `linearAuth` (tokens resolved per call, never exposed to the model). Slack DMs are app-scoped through the same Connect mechanism (`send_slack_dm`). Blob uses the project OIDC token. No credentials live in code, and `.env*` is gitignored.
-- **Human-in-the-loop:** the irreversible `clear_user_preferences` tool is gated with `approval` from `eve/tools/approval`. The seven mounted GitHub writes decide in `agent/lib/github/approval.ts`, from the session rather than the tool: comments and labels run uncarded on an attended turn because they are the substance of a reply and gating them would strand the thread, everything durable keeps its card, and an unattended triage turn is refused every write outright, since its card would be posted as a comment on a stranger's issue and then wait for an answer nobody knows to give. A scheduled sweep is the one caller that may skip a card on a durable write, and only for a draft pull request: it fires while nobody is watching Slack, so a card there parks the session rather than confirming anything, and a draft cannot merge without a person marking it ready. The connections accept the same `approval` field; neither passes a policy today (see Future considerations).
-- **Per-user isolation:** the preference tools derive their Blob key from the resolved principal (`ctx.session.auth.current`), never from model input, so a session can only touch its own user's file; the id is hashed so the stored path carries no raw identifier. Preference files live under the reserved `user-preferences/` prefix. The Blob store is provisioned public, so preferences are scoped, not strongly confidential — use a private store if that matters.
-- **Mention authorization:** the github channel's `onComment` hook keeps the built-in mention and ignore rules but dispatches only when the commenter's `author_association` is OWNER, MEMBER, or COLLABORATOR. On a public repo, arbitrary accounts can @mention the agent, and a dispatched session carries ungated GitHub writes, app-scoped Linear read/write, and Slack DM sending; the association gate keeps those tools drivable only by people the repo already trusts with write access. Untrusted mentions are acknowledged without a session.
-- **Capture targets:** `capture_before_after` reaches a URL from inside the sandbox, whose egress is open, and publishes what it finds at a public Blob URL. `validateCaptureUrl` limits that to `*.vercel.app` and `localhost` so the tool cannot be pointed at an internal or metadata address, the URLs are refused rather than escaped before they reach a shell, and the tool is withheld from unattended turns like every other capability that writes.
-- **Prompt-injection surface:** the agent reads issue bodies, comments, Slack messages, and PR titles, descriptions, and diffs written by third parties. The `onIssue` hook is the one dispatch that starts on third-party content with no human mention at all (deliberately: answering an outside reporter is the feature). It runs under a principal every write is refused for, and `agent/instructions/first-responder.ts` tells it to treat the issue body as a report to read rather than instructions to follow, which bounds what injected text can reach: one reply, and nothing else. Instruction-following on injected text remains model judgment, not mechanism; the association gate above closes the direct command channel, but content-borne injection is still worth keeping in mind when wiring another unattended hook or extending the connections.
-
-## Development & testing
-
-- **Runtime/TUI:** `bun run dev` (eve dev TUI; `/model` links a provider).
-- **Type checking:** `bun run typecheck` (tsc).
-- **Discovery diagnostics:** `bun x eve info` (must report 0 errors / 0 warnings), or `bun run validate` for typecheck + discovery together.
-- **Unit tests:** `bun run test` (vitest) over the colocated `*.test.ts` files under `agent/lib/` and `evals/lib/`. Everything outside those two is wiring that eve boots, so it is verified by discovery and in the dev TUI rather than by a test.
-- **Evals:** `bun run eval` drives the agent against a live model and costs real money; run it deliberately, not as a check on every change. Each result is also sent to PostHog as a `baymi_eval` event when `POSTHOG_API_KEY` is set (`evals/reporters/posthog.ts`), which is what makes a model swap legible: the suite scores sit side by side across runs instead of scrolling past once. `--skip-report` suppresses it while iterating locally.
-
-## Future considerations
-
-- Approval-gating outbound writes: Linear issue creation and Slack DMs are ungated today because they are the agent's core loop; add per-connection or per-tool `approval` policies if a human confirm step is wanted.
-- Digest fan-out: `DIGEST_REPOS` takes any number of repositories, but they all post to one `DIGEST_SLACK_CHANNEL`, one thread each. Routing different repositories to different channels would mean a repo-to-channel map rather than a list. At a large number of repositories the channel gets noisy, and the alternative (one digest covering every repo) would need issues cited as `owner/repo#N` and a rewrite of the thread-reply rules.
-- Digest memory: tracking which issues were already reported (e.g. in Blob) so "new this week" is computed against the last digest rather than issue timestamps alone.
-- A deterministic style checker (e.g. a banned-words lint reading the `writing-quality` references) to complement model judgment on outgoing prose.
-- An `onPullRequest` hook that captures a maintainer's own pull request unasked. Built and reverted on 2026-09-04: the gate works (`opened`/`ready_for_review`, trusted author, a diff touching files that render, the inverse of the triage gate because a capture publishes to a public store), and the reason it came out is direction, not defect. This agent is a GitHub maintainer, and a capture belongs to a pull request it is opening itself, which is where `shipping-a-change` already reaches for it. Reviewing someone else's pages is the start of a different product, and the line runs where the browser stops being a camera and starts being something to drive. `docs/notes.md` keeps what the attempt learned: Vercel signals a preview through a commit status eve has no hook for, so a capture turn probes the page itself rather than waiting on CI.
-- Mounting the `@agent-browser/eve` extension, which would add `browser__navigate` and friends to every prompt. The sandbox already carries the browser binary for `capture_before_after`, so the open question is only whether the agent should be able to _drive_ a page rather than capture one: worth it the day a rendering bug needs inspecting interactively, and not before, since the tools are carried whether or not a turn is about a browser.
-
-## Glossary
-
-- **eve:** the agent framework powering this app; discovers capabilities from `agent/`.
-- **Channel:** an inbound/outbound surface. Here: GitHub, Linear, Slack, plus the eve route's auth config.
-- **Connection:** an external server (MCP/OpenAPI) exposed to the model; tools are called as `connection__<name>__<tool>`. Here: `linear`.
-- **Tool:** a typed action authored with `defineTool` (or mounted from an SDK, like the `github` tools), run in the app runtime.
-- **Schedule:** a cron-triggered session under `agent/schedules/`. Here: `weekly-digest` plus the four maintenance sweeps, all handler-form schedules that start their session on the Slack channel.
-- **Skill:** a load-on-demand Markdown procedure; the packaged form requires `description` frontmatter used for routing. Nine of them live under `agent/skills/`, listed in the project structure above.
-- **Subagent:** a declared agent under `agent/subagents/<id>/` that the root delegates to as a tool. It runs in its own fresh child session and inherits none of the root's skills, connections, or tools, so the root passes context in the call `message`. Here: `researcher` (web research).
-- **Vercel Connect:** brokers OAuth/credentials for GitHub and Linear; connectors are identified by a UID.
-- **OIDC:** the project's Vercel identity token, used to authenticate Blob (and AI Gateway) without static keys.
+The agent runs on Vercel, the same way locally (`eve dev`) and in production (`eve deploy`). The GitHub App's webhook URL and the Slack connector's trigger both point at the production deployment; a preview behind Deployment Protection cannot receive either (`docs/notes.md`). Which repositories the agent watches is decided by where the GitHub App is installed, and nowhere else.

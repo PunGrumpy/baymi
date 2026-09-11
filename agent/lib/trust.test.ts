@@ -2,99 +2,96 @@ import type { SessionAuthContext } from "eve/context";
 import { describe, expect, it } from "vitest";
 
 import {
-  AUTONOMOUS_GITHUB_PRINCIPAL,
-  isAutonomous,
-  isScheduleAppAuth,
+  isSlackHuman,
   isTrustedGitHubAssociation,
+  isUnattended,
+  REVIEWER_PRINCIPAL,
 } from "#lib/trust";
 
-/** An issue payload with the optional fields GitHub can omit left off. */
-interface PartialIssuePayload {
-  readonly author_association?: string;
-}
-
-/** A session whose auth context has not been resolved yet. */
-interface PartialSession {
-  readonly auth?: SessionAuthContext | null;
-}
+const auth = (overrides: Partial<SessionAuthContext>): SessionAuthContext => ({
+  attributes: {},
+  authenticator: "slack-webhook",
+  principalId: "slack:T0AAAAAAA:U0BBBBBBB",
+  principalType: "user",
+  ...overrides,
+});
 
 describe(isTrustedGitHubAssociation, () => {
-  it("trusts the roles that carry repository write access", () => {
-    expect(isTrustedGitHubAssociation("OWNER")).toBeTruthy();
-    expect(isTrustedGitHubAssociation("MEMBER")).toBeTruthy();
-    expect(isTrustedGitHubAssociation("COLLABORATOR")).toBeTruthy();
+  it("trusts the roles with write access to the repository", () => {
+    for (const role of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+      expect(isTrustedGitHubAssociation(role)).toBeTruthy();
+    }
   });
 
-  it("does not trust roles a public repo hands out for free", () => {
-    expect(isTrustedGitHubAssociation("CONTRIBUTOR")).toBeFalsy();
-    expect(isTrustedGitHubAssociation("FIRST_TIME_CONTRIBUTOR")).toBeFalsy();
-    expect(isTrustedGitHubAssociation("NONE")).toBeFalsy();
-    expect(isTrustedGitHubAssociation("MANNEQUIN")).toBeFalsy();
+  it("does not trust contributors, first-timers, or anyone else", () => {
+    for (const role of [
+      "CONTRIBUTOR",
+      "FIRST_TIME_CONTRIBUTOR",
+      "FIRST_TIMER",
+      "NONE",
+      "MANNEQUIN",
+    ]) {
+      expect(isTrustedGitHubAssociation(role)).toBeFalsy();
+    }
   });
 
-  it("does not trust a missing or non-string association", () => {
-    // How it actually arrives when GitHub omits the field: reading it off the
-    // payload rather than passing a bare `undefined`, which the linter strips.
-    const payload: PartialIssuePayload = {};
-    expect(isTrustedGitHubAssociation(payload.author_association)).toBeFalsy();
+  it("treats a missing or malformed value as untrusted", () => {
+    // `raw` is untyped JSON, so the field can be absent or anything at all.
+    expect(isTrustedGitHubAssociation()).toBeFalsy();
     expect(isTrustedGitHubAssociation(null)).toBeFalsy();
+    expect(isTrustedGitHubAssociation("owner")).toBeFalsy();
     expect(isTrustedGitHubAssociation(1)).toBeFalsy();
   });
-
-  it("is case sensitive, matching GitHub's payload exactly", () => {
-    expect(isTrustedGitHubAssociation("owner")).toBeFalsy();
-  });
 });
 
-const auth = (principalId: string): SessionAuthContext => ({
-  attributes: {},
-  authenticator: "github",
-  principalId,
-  principalType: "user",
-});
-
-describe(isAutonomous, () => {
-  it("recognizes the unattended triage principal", () => {
-    expect(isAutonomous(auth(AUTONOMOUS_GITHUB_PRINCIPAL))).toBeTruthy();
-  });
-
-  it("does not mistake a real GitHub actor for one", () => {
-    // Projected actors always carry a numeric id, so the constructed
-    // login-shaped principal cannot collide with a real account.
-    expect(isAutonomous(auth("github:12345"))).toBeFalsy();
-  });
-
-  it("treats an unauthenticated session as not autonomous", () => {
-    const session: PartialSession = {};
-    expect(isAutonomous(session.auth ?? null)).toBeFalsy();
-  });
-});
-
-describe(isScheduleAppAuth, () => {
-  const appAuth: SessionAuthContext = {
-    attributes: {},
-    authenticator: "app",
-    principalId: "eve:app",
-    principalType: "runtime",
-  };
-
-  it("recognizes the app principal eve stamps on a scheduled turn", () => {
-    expect(isScheduleAppAuth(appAuth)).toBeTruthy();
-  });
-
-  it("does not mistake a person or the triage principal for one", () => {
-    expect(isScheduleAppAuth(auth("github:12345"))).toBeFalsy();
-    expect(isScheduleAppAuth(auth(AUTONOMOUS_GITHUB_PRINCIPAL))).toBeFalsy();
-  });
-
-  it("needs all three fields, not just the principal id", () => {
-    // A channel could project a user principal named eve:app; the
-    // authenticator and principal type are what make it the runtime's own.
+describe(isUnattended, () => {
+  it("recognizes the reviewer principal and nothing else", () => {
     expect(
-      isScheduleAppAuth({ ...appAuth, authenticator: "github-webhook" })
+      isUnattended(
+        auth({
+          authenticator: "github-webhook",
+          principalId: REVIEWER_PRINCIPAL,
+          principalType: "service",
+        })
+      )
+    ).toBeTruthy();
+    expect(
+      isUnattended(
+        auth({ authenticator: "github-webhook", principalId: "github:42" })
+      )
     ).toBeFalsy();
+    expect(isUnattended(null)).toBeFalsy();
+  });
+});
+
+describe(isSlackHuman, () => {
+  it("admits a person delivered by the Slack channel", () => {
+    expect(isSlackHuman(auth({}))).toBeTruthy();
+  });
+
+  it("keeps bots out, including other apps in the workspace", () => {
     expect(
-      isScheduleAppAuth({ ...appAuth, principalType: "user" })
+      isSlackHuman(
+        auth({
+          principalId: "slack:T0AAAAAAA:bot:B0CCCCCCC",
+          principalType: "service",
+        })
+      )
+    ).toBeFalsy();
+  });
+
+  it("pins the workspace when a team id is configured", () => {
+    // A Slack Connect guest arrives as a human of another team; the pin is
+    // what keeps them out.
+    expect(isSlackHuman(auth({}), "T0AAAAAAA")).toBeTruthy();
+    expect(isSlackHuman(auth({}), "T0ZZZZZZZ")).toBeFalsy();
+  });
+
+  it("never admits a principal from another channel", () => {
+    expect(
+      isSlackHuman(
+        auth({ authenticator: "github-webhook", principalId: "github:42" })
+      )
     ).toBeFalsy();
   });
 });
