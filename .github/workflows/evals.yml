@@ -40,12 +40,10 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
-      DIGEST_REPOS: ${{ vars.DIGEST_REPOS }}
-      DIGEST_SLACK_CHANNEL: ${{ vars.DIGEST_SLACK_CHANNEL }}
       EVAL_MODEL: ${{ vars.EVAL_MODEL }}
       GITHUB_CONNECTOR: ${{ vars.GITHUB_CONNECTOR }}
+      GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
       MODEL: ${{ inputs.model || vars.MODEL }}
-      LINEAR_CONNECTOR: ${{ vars.LINEAR_CONNECTOR }}
       SLACK_CONNECTOR: ${{ vars.SLACK_CONNECTOR }}
     steps:
       - uses: actions/checkout@v7
@@ -55,8 +53,6 @@ jobs:
           bun-version: latest
 
       # The eve CLI runs on Node, not on Bun, and refuses anything below 24.
-      # The runner's default is older, so the eval step dies before it reads a
-      # single eval without this.
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -65,8 +61,7 @@ jobs:
 
       # Every variable is required and none has a fallback, so an unconfigured
       # repository fails at discovery rather than at an assertion. That failure
-      # says nothing about the agent, so report it as a skip instead of a red
-      # check on a pull request that only touched a prompt.
+      # says nothing about the agent, so report it as a skip.
       - name: Check for model credentials
         id: credentials
         run: |
@@ -77,10 +72,6 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # `needs-connect` evals assert on calls that must reach Vercel Blob and
-      # the connectors, which CI has no token for. The default `fast` tag skips
-      # them, so an unauthenticated run reports a regression only when there is
-      # one.
       - name: Run evals
         if: steps.credentials.outputs.configured == 'true'
         run: bun run eval --strict --tag "${{ inputs.tag || 'fast' }}" --junit .eve/junit.xml
