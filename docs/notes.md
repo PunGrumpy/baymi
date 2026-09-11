@@ -72,4 +72,6 @@ Things that cost time to find out. Each one is why some line of this agent, or o
 
 **Vercel Deployment Protection answers before the app does.** Every route on a protected preview returns 401 or a redirect to Vercel SSO, including the webhook paths, so GitHub and Slack cannot reach a protected preview at all: point the webhooks at production.
 
+**`ai.model` is empty unless the hook is told the model.** evlog reads the model from the id eve reports at `session.started`, which a provider built on `ANTHROPIC_BASE_URL` does not carry, so every turn since the gateway moved arrived with no model. `agent/hooks/evlog.ts` passes `model: env.MODEL`. `ai.estimatedCost` stays empty too, and that one is deliberate: evlog computes it only from a `cost` map, and AI Pass has no per-token price to put in one. The dashboards count tokens.
+
 **PostHog has two hosts and they are not interchangeable.** `POSTHOG_HOST` is the _capture_ endpoint (`us.i.posthog.com`, note the `i`); the query endpoint is `us.posthog.com`. Posting events at the query host does not fail loudly enough to be obvious.
