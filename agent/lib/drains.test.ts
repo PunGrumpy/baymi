@@ -11,7 +11,7 @@ const event = (path: string): DrainContext => ({
     level: "info",
     path,
     service: "baymi",
-    timestamp: "2026-08-21T00:00:00.000Z",
+    timestamp: "2026-09-11T00:00:00.000Z",
   },
 });
 
@@ -30,8 +30,6 @@ describe(createFanOutDrain, () => {
   });
 
   it("keeps a failing destination from taking the others down", async () => {
-    // Or from taking the turn down: an agent that stops answering because a
-    // log shipper is unreachable has traded the product for its telemetry.
     const failing = vi
       .fn<DrainDestination>()
       .mockRejectedValue(new Error("posthog is down"));

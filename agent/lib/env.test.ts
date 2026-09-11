@@ -3,12 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const VALID_ENV = {
   ANTHROPIC_API_KEY: "test-token",
   ANTHROPIC_BASE_URL: "https://api.anthropic.com/v1",
-  DIGEST_REPOS: "acme/widgets,acme/docs",
-  DIGEST_SLACK_CHANNEL: "C0123456789",
   EVAL_MODEL: "test-eval-model",
   GITHUB_CONNECTOR: "github/baymi",
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
-  LINEAR_CONNECTOR: "linear/baymi",
   MODEL: "test-model",
   SLACK_CONNECTOR: "slack/baymi",
 };
@@ -31,33 +28,36 @@ describe("env", () => {
     vi.unstubAllEnvs();
   });
 
-  it("leaves the telemetry variables unset rather than defaulted", async () => {
-    // A fresh checkout has no PostHog project. The wide events are still
-    // recorded; what is absent is the destination and the weekly report, and
-    // a default here would point both at somebody else's project. Stubbed
-    // empty rather than omitted: `vi.stubEnv` leaves the rest of the real
-    // process environment in place, so a developer with these set in their
-    // own shell would otherwise fail this run.
+  it("leaves the optional variables unset rather than defaulted", async () => {
+    // Stubbed empty rather than omitted: `vi.stubEnv` leaves the rest of the
+    // real process environment in place, so a developer with these set in
+    // their own shell would otherwise fail this run.
     const env = await loadEnv({
       POSTHOG_API_KEY: "",
-      POSTHOG_PERSONAL_API_KEY: "",
+      SLACK_NOTIFY_CHANNEL: "",
+      SLACK_TEAM_ID: "",
     });
     expect(env.POSTHOG_API_KEY).toBeUndefined();
-    expect(env.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    expect(env.SLACK_NOTIFY_CHANNEL).toBeUndefined();
+    expect(env.SLACK_TEAM_ID).toBeUndefined();
   });
 
-  it("parses DIGEST_REPOS into a list, not the raw string", async () => {
-    const env = await loadEnv();
-    // Guards the schedule's `for (const repo of env.DIGEST_REPOS)`: a plain
-    // string here type-checks and then iterates one character at a time.
-    expect(Array.isArray(env.DIGEST_REPOS)).toBeTruthy();
-    expect(env.DIGEST_REPOS).toStrictEqual(["acme/widgets", "acme/docs"]);
+  it("accepts a channel or a member as the place to check in", async () => {
+    // A member ID opens a direct message, which is where a solo maintainer
+    // usually wants to hear from the agent; a channel works the same way.
+    const channel = await loadEnv({ SLACK_NOTIFY_CHANNEL: "C0123456789" });
+    expect(channel.SLACK_NOTIFY_CHANNEL).toBe("C0123456789");
+    const member = await loadEnv({ SLACK_NOTIFY_CHANNEL: "U0123456789" });
+    expect(member.SLACK_NOTIFY_CHANNEL).toBe("U0123456789");
+  });
+
+  it("refuses a Slack conversation that is not an ID", async () => {
+    await expect(
+      loadEnv({ SLACK_NOTIFY_CHANNEL: "#security" })
+    ).rejects.toThrow("Invalid environment variables");
   });
 
   it("takes the model endpoint as given, with no provider prefix assumed", async () => {
-    // The base URL points at an Anthropic-compatible endpoint that need not be
-    // Anthropic's own, so the key carries no `sk-` shape and the URL is the
-    // only thing that decides which service answers.
     const env = await loadEnv({
       ANTHROPIC_BASE_URL: "https://gateway.example.test/anthropic/v1",
     });
@@ -66,21 +66,9 @@ describe("env", () => {
     );
   });
 
-  it("keeps the agent model and the eval model independent", async () => {
-    // Two variables rather than one so a run can be graded by a model other
-    // than the one under test. Reading the same value into both would make a
-    // judged score self-assessment without saying so.
-    const env = await loadEnv({
-      EVAL_MODEL: "vendor/grader",
-      MODEL: "vendor/candidate",
-    });
-    expect(env.MODEL).toBe("vendor/candidate");
-    expect(env.EVAL_MODEL).toBe("vendor/grader");
-  });
-
-  it("rejects a base URL that is not a URL", async () => {
-    await expect(loadEnv({ ANTHROPIC_BASE_URL: "not-a-url" })).rejects.toThrow(
-      /invalid environment variables/iu
+  it("checks a connector UID against its provider", async () => {
+    await expect(loadEnv({ SLACK_CONNECTOR: "github/baymi" })).rejects.toThrow(
+      "Invalid environment variables"
     );
   });
 });

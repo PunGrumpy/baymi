@@ -1,16 +1,21 @@
 import type { GitHubComment } from "eve/channels/github";
 import type { SessionAuthContext } from "eve/context";
+import { z } from "zod";
 
 /**
  * Who is allowed to drive the agent, expressed once.
  *
  * @remarks
- * Every surface answers "should this caller be able to start a session and
+ * Every channel answers "should this caller be able to start a session and
  * reach the write tools?" and each one answers it differently: GitHub has
- * `author_association`, Slack has channel membership, Linear has the Agent
- * Session. Keeping the answers here rather than inside each channel means a
- * change to the trust model is one edit, and it can be tested without booting
- * a channel.
+ * `author_association`, Slack has workspace membership. Keeping the answers
+ * here means a change to the trust model is one edit, testable without a
+ * channel.
+ *
+ * Three kinds of caller exist. A trusted human, who can ask for anything the
+ * approval layer allows. The unattended reviewer, a constructed principal
+ * that reads a pull request nobody asked it to read and may do nothing but
+ * reply. And everyone else, whose messages are acknowledged without a turn.
  */
 
 /**
@@ -20,24 +25,23 @@ import type { SessionAuthContext } from "eve/context";
  * @remarks
  * GitHub's `author_association` on the comment payload. Anything outside this
  * set (CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, FIRST_TIMER, NONE, MANNEQUIN) is a
- * user the repo hasn't trusted with write access, so their mentions are
- * acknowledged without dispatching. On a public repo this is what stops an
- * arbitrary account from driving the agent's write tools.
+ * user the repository has not trusted with write access, so their mentions
+ * are acknowledged without dispatching. On a public repository this is what
+ * stops an arbitrary account from driving the agent's tools.
  */
-export const TRUSTED_GITHUB_ASSOCIATIONS: ReadonlySet<RawAuthorAssociation> =
-  new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
+const TRUSTED_GITHUB_ASSOCIATIONS = [
+  "COLLABORATOR",
+  "MEMBER",
+  "OWNER",
+] as const;
+
+const TRUSTED_ASSOCIATION = z.enum(TRUSTED_GITHUB_ASSOCIATIONS);
 
 /**
- * `author_association` as it actually arrives, typed by the payload it is read
- * off rather than by what GitHub documents.
- *
- * @remarks
- * `raw` is an untyped JSON object, so the field can hold any JSON value and can
- * be absent entirely. Widening the trusted set to the same type is what lets
- * the check below be a plain lookup: a number, a null or a missing field simply
- * is not in the set.
+ * `author_association` as it actually arrives: a field of an untyped JSON
+ * payload, which can hold any JSON value or be absent entirely.
  */
-type RawAuthorAssociation =
+export type RawAuthorAssociation =
   | GitHubComment["raw"]["author_association"]
   | undefined;
 
@@ -47,66 +51,48 @@ type RawAuthorAssociation =
  * missing or non-string value, is untrusted.
  */
 export const isTrustedGitHubAssociation = (
-  association: RawAuthorAssociation
-): boolean => TRUSTED_GITHUB_ASSOCIATIONS.has(association);
+  association?: RawAuthorAssociation
+): boolean => TRUSTED_ASSOCIATION.safeParse(association).success;
 
 /**
- * The maintainer's GitHub login, lowercase, used to decide who an unattended
- * turn may hand an issue to.
+ * The principal an unattended pull request review runs as.
  *
  * @remarks
- * A public handle, not a credential, so it is a constant rather than an
- * environment variable: an escalation that silently stops escalating because a
- * variable went missing is worse than one that cannot be reconfigured without
- * a deploy. Lowercase because GitHub logins are case-insensitive and the
- * comparison is, so the stored form has to be the normalized one.
- *
- * This is deliberately one name. The question "who should look at this?" is a
- * judgement about people's time that a model answering a stranger's issue has
- * no way to make, and on these repositories it has one answer anyway.
+ * A turn started by a stranger's pull request must not run as that stranger,
+ * and must not run as anyone the agent trusts either. It gets a constructed
+ * identity of its own, which every gate in the codebase can recognize and
+ * refuse. Real GitHub actors always have a numeric `github:<id>`, so a
+ * login-shaped value here cannot collide with one.
  */
-export const MAINTAINER_GITHUB_LOGIN = "pungrumpy";
+export const REVIEWER_PRINCIPAL = "github:baymiai";
 
 /**
- * The principal an unattended first-responder turn runs as.
- *
- * @remarks
- * A turn started by a stranger's issue must not run as that stranger, and must
- * not run as anyone the agent trusts either. It gets a constructed identity of
- * its own, which every gate in the codebase can recognize and refuse. Real
- * GitHub actors always carry a numeric `github:<id>`, so a login-shaped value
- * here cannot collide with one.
- */
-export const AUTONOMOUS_GITHUB_PRINCIPAL = "github:baymiai";
-
-/**
- * Whether this session is an unattended turn triaging a new issue.
+ * Whether this turn is an unattended review of a pull request.
  *
  * @remarks
  * Nobody asked for this turn and nobody is watching it, and the text that
- * started it came from someone the repository has not trusted with anything.
- * Capabilities that reach past the issue it is answering check this and
- * withhold themselves.
+ * started it came from whoever opened the pull request. Capabilities that
+ * reach past the reply check this and withhold themselves: every GitHub write,
+ * memory, and anything that could park the session on a question.
  */
-export const isAutonomous = (auth: SessionAuthContext | null): boolean =>
-  auth !== null && auth.principalId === AUTONOMOUS_GITHUB_PRINCIPAL;
+export const isUnattended = (auth: SessionAuthContext | null): boolean =>
+  auth !== null && auth.principalId === REVIEWER_PRINCIPAL;
 
 /**
- * Whether this session was started by one of the agent's own schedules.
+ * Whether this caller is a person in the agent's own Slack workspace.
  *
  * @remarks
- * eve stamps every schedule-dispatched turn with its app principal. That is
- * not a person: a scheduled sweep runs while nobody is watching Slack, so a
- * capability that would ask a human something has to decide what to do about
- * that rather than assume someone is there to answer.
- *
- * It is not the unattended GitHub principal either. A sweep is work the
- * maintainer configured and scheduled, and its input is this repository, not
- * text a stranger wrote, so `isAutonomous` and this are deliberately separate
- * questions with separate answers.
+ * eve mints `slack:<team>:<member>` for humans and `slack:<team>:bot:<id>`
+ * for bots, and the workspace is private: only the maintainer can install
+ * the app or invite into it, so the workspace is the allowlist. `teamId`
+ * pins it further when set, which is what keeps a Slack Connect guest from
+ * another workspace out; without it any human the connector delivers is in.
  */
-export const isScheduleAppAuth = (auth: SessionAuthContext | null): boolean =>
+export const isSlackHuman = (
+  auth: SessionAuthContext | null,
+  teamId?: string
+): boolean =>
   auth !== null &&
-  auth.authenticator === "app" &&
-  auth.principalId === "eve:app" &&
-  auth.principalType === "runtime";
+  auth.authenticator === "slack-webhook" &&
+  auth.principalType === "user" &&
+  (teamId === undefined || auth.principalId.startsWith(`slack:${teamId}:`));

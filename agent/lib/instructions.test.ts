@@ -1,37 +1,33 @@
 import { describe, expect, it } from "vitest";
 
-import { CHANNEL_KINDS, loadsOnChannel } from "#lib/instructions";
+import { channelName, loadsOnChannel } from "#lib/instructions";
 
-/** A channel whose optional `kind` the runtime has not set. */
-interface PartialChannel {
-  readonly kind?: string;
-}
+describe(channelName, () => {
+  it("strips the prefix an authored channel reports", () => {
+    expect(channelName("channel:github")).toBe("github");
+    expect(channelName("slack")).toBe("slack");
+  });
+
+  it("names an unknown channel rather than throwing", () => {
+    expect(channelName()).toBe("unknown");
+  });
+});
 
 describe(loadsOnChannel, () => {
-  it("loads a fragment on its own channel", () => {
-    for (const channel of CHANNEL_KINDS) {
-      expect(loadsOnChannel(channel, channel)).toBeTruthy();
-    }
+  it("loads a fragment on its own channel, prefixed or bare", () => {
+    expect(loadsOnChannel("github", "github")).toBeTruthy();
+    expect(loadsOnChannel("github", "channel:github")).toBeTruthy();
   });
 
-  it("withholds a fragment from the other product surfaces", () => {
-    expect(loadsOnChannel("slack", "github")).toBeFalsy();
-    expect(loadsOnChannel("github", "linear")).toBeFalsy();
-    expect(loadsOnChannel("linear", "slack")).toBeFalsy();
+  it("withholds a fragment from another product channel", () => {
+    expect(loadsOnChannel("slack", "channel:github")).toBeFalsy();
+    expect(loadsOnChannel("github", "slack")).toBeFalsy();
   });
 
-  it("loads every fragment on the HTTP session surface", () => {
-    for (const channel of CHANNEL_KINDS) {
-      expect(loadsOnChannel(channel, "http")).toBeTruthy();
-    }
-  });
-
-  it("loads every fragment when the channel kind is unknown", () => {
-    // `ctx.channel.kind` is optional; read it off a channel that has none
-    // rather than passing a bare `undefined`, which the linter strips.
-    const channelWithoutKind: PartialChannel = {};
-    for (const channel of CHANNEL_KINDS) {
-      expect(loadsOnChannel(channel, channelWithoutKind.kind)).toBeTruthy();
-    }
+  it("loads every fragment on a route that is not a product channel", () => {
+    // `eve dev` and the eval runner drive the HTTP route to exercise behavior
+    // that belongs to another channel.
+    expect(loadsOnChannel("github", "http")).toBeTruthy();
+    expect(loadsOnChannel("slack")).toBeTruthy();
   });
 });

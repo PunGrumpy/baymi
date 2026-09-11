@@ -7,15 +7,20 @@ import { env } from "#lib/env";
  * Root agent runtime configuration.
  *
  * @remarks
- * Sets the model and the session budget for Baymi, the GitHub maintainer agent;
- * the rest of the agent's surface (channels, connections, extensions, tools,
- * skills, subagents) is discovered from the filesystem under `agent/`.
- * Conversation history is compacted once it reaches 75% of the context window,
- * and the per-session output token limit caps runaway sessions.
+ * Sets the model and the session budget; the rest of the agent
+ * (channels, extension, tools, memory, skills) is discovered from the
+ * filesystem under `agent/`. The model id comes from `MODEL` and resolves
+ * through the provider in `agent/lib/anthropic.ts`, so a model swap is an
+ * environment change while reasoning and context-window changes are code.
+ *
+ * A security review is one long careful read rather than a conversation, so
+ * reasoning stays high and the per-session output cap is what bounds a
+ * runaway turn.
  */
 export default defineAgent({
   compaction: { thresholdPercent: 0.75 },
-  description: "Baymi, the GitHub maintainer agent",
+  description:
+    "Baymi, a security-minded companion for the repositories it is installed on",
   limits: {
     maxOutputTokensPerSession: 250_000,
   },
