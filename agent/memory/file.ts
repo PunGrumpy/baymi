@@ -26,7 +26,7 @@ import { isUnattended } from "#lib/trust";
  *
  * The document lives in Vercel Blob on a deployment (`eve integration setup
  * file-memory` provisions the store) and in process memory under `eve dev`.
- * A deployment with no store gets no memory rather than no answers: the
+ * A deployment with no store gets no memory rather than no answers. The
  * scope resolves to `null` there too (`agent/lib/memory.ts`).
  */
 export default defineMemory({

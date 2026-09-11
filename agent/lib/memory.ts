@@ -1,14 +1,14 @@
 /**
- * Whether file memory has somewhere to live in this environment.
+ * Whether file memory has a store in this environment.
  *
  * @remarks
  * `fileMemory()` picks its backend lazily: process memory under `eve dev`,
  * Vercel Blob on a deployment, and a thrown error when a deployment has no
  * Blob credentials. That error fails the turn, and it failed every Slack
  * turn on the first production deploy because the store had not been
- * provisioned yet. Memory is a convenience; an answer is the product. So
+ * provisioned yet. An answer matters more than a remembered preference, so
  * the scope resolves to `null` when there is no store, which disables the
- * slot for that turn instead of killing it, and the agent answers without
+ * slot for that turn instead of failing it, and the agent answers without
  * memory until `eve integration setup file-memory` has run.
  *
  * The variable names are the ones `fileMemory()` itself probes, in the

@@ -21,7 +21,7 @@ import { env } from "#lib/env";
  * `agent/tools/` adds back the three the agent keeps: `read_file`,
  * `load_skill`, and `ask_question`. The shell, the file writer, the web
  * tools, the todo list, and self-delegation never appear, which is the
- * read-only line ARCHITECTURE.md describes.
+ * read-only rule ARCHITECTURE.md describes.
  */
 export default defineAgent({
   compaction: { thresholdPercent: 0.75 },
