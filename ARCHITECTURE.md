@@ -36,8 +36,8 @@ agent/
   tools/
     list_installed_repositories.ts  # the repositories the App is installed on, which is the agent's whole scope
     notify_maintainer.ts    # dynamic: the one-line Slack check-in, present only on unattended reviews when a target is configured
+    read_file.ts, load_skill.ts, ask_question.ts  # the three defaults kept; agent.ts sets defaultTools: false
     glob.ts, grep.ts        # framework read tools, opted in
-    bash.ts, write_file.ts, web_fetch.ts, web_search.ts, todo.ts, agent.ts  # disabled built-ins
   hooks/
     evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
   sandbox.ts                # Vercel Sandbox; marks /workspace git-safe so the channel checkout succeeds; one snapshot per sandbox
@@ -82,9 +82,9 @@ docs/
 
 ## Why it is read-only
 
-The sandbox holds a checkout of whatever pull request last opened, and the pull request came from whoever opened it. eve attaches the installation token to the sandbox's outbound requests to `github.com` for the checkout. A shell that could run the pull request's code could make requests from inside that boundary. So `bash` and `write_file` are disabled, and so are `web_fetch` and `web_search`, because a URL built from an untrusted diff could send a private repository's contents to an outside host in the query string. What remains is `read_file`, `glob`, and `grep`, which search the filesystem. The review is reasoning over code, and the instructions say so. The agent never claims to have run, tested, or reproduced anything.
+The sandbox holds a checkout of whatever pull request last opened, and the pull request came from whoever opened it. eve attaches the installation token to the sandbox's outbound requests to `github.com` for the checkout. A shell that could run the pull request's code could make requests from inside that boundary. So `agent/agent.ts` sets `defaultTools: false`, which removes `bash` and `write_file`, and with them `web_fetch` and `web_search`, because a URL built from an untrusted diff could send a private repository's contents to an outside host in the query string. `agent/tools/` adds back `read_file`, `load_skill`, and `ask_question`, and opts into `glob` and `grep`, which search the filesystem. The review is reasoning over code, and the instructions say so. The agent never claims to have run, tested, or reproduced anything.
 
-`todo` and the built-in `agent` delegation are off for a smaller reason: the gateway this agent answers through degrades as the tool list grows (`docs/notes.md`), and a review is one pass with no side quests to track.
+`todo` and the built-in `agent` delegation stay off for a smaller reason: the gateway this agent answers through degrades as the tool list grows (`docs/notes.md`), and a review is one pass with no side quests to track.
 
 ## Data flow
 
