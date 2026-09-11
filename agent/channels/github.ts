@@ -27,6 +27,13 @@ import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
  * that hears about it is the maintainer's Slack, when one is configured.
  * What could not be delivered is logged, because a check-in that silently
  * did not happen looks exactly like one that did.
+ *
+ * Only `session.failed` calls this. eve retries a failed turn step and
+ * then fails the session, so a dead review emits `turn.failed` and
+ * `session.failed` in that order, and the first production review posted
+ * the card twice. A session can also fail with no turn failure at all
+ * (the missing Blob store did), so `session.failed` is the event that
+ * always fires, and `turn.failed` only logs.
  */
 const reportFailedReview = async (
   channel: GitHubEventContext,
@@ -169,7 +176,7 @@ export default githubChannel({
     async "turn.failed"(event, channel, ctx) {
       logFailure("turn", event);
       if (isUnattended(ctx.session.auth.current)) {
-        await reportFailedReview(channel, event);
+        // The session fails next and sends the one card; see reportFailedReview.
         return;
       }
       await channel.thread.post(
