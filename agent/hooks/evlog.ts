@@ -25,6 +25,13 @@ export const TURN_EVENT = "baymi_turn";
  * The model answers through a gateway of the operator's choosing, so nothing
  * upstream counts its tokens; this is the only record of what a week of
  * reviews cost.
+ *
+ * `model` names the model on every event. evlog otherwise takes it from the
+ * gateway model id eve reports at `session.started`, and a provider built
+ * on a base URL reports none, which left `ai.model` empty on every turn
+ * since the gateway moved. Cost stays absent on purpose: the gateway has no
+ * per-token price, and a rate applied from memory is a number the next
+ * report cannot reproduce.
  */
 const posthogDrain = (apiKey: string) => {
   const config: PostHogConfig = {
@@ -57,6 +64,7 @@ const options: EvlogEveOptions = {
     env: { service: "baymi" },
     pretty: !process.env.VERCEL,
   },
+  model: env.MODEL,
   sessionEvent: true,
 };
 const drain = createFanOutDrain(destinations);
