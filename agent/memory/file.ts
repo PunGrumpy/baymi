@@ -1,6 +1,7 @@
 import { defineMemory } from "eve/memory";
 import { fileMemory } from "eve/memory/file";
 
+import { hasMemoryStore } from "#lib/memory";
 import { isUnattended } from "#lib/trust";
 
 /**
@@ -25,11 +26,15 @@ import { isUnattended } from "#lib/trust";
  *
  * The document lives in Vercel Blob on a deployment (`eve integration setup
  * file-memory` provisions the store) and in process memory under `eve dev`.
+ * A deployment with no store gets no memory rather than no answers: the
+ * scope resolves to `null` there too (`agent/lib/memory.ts`).
  */
 export default defineMemory({
   description:
     "Durable facts and preferences of the maintainer this agent works for: how they like findings reported, what they consider noise, which repositories matter most, and anything they ask you to remember.",
   provider: fileMemory(),
   scope: (ctx) =>
-    isUnattended(ctx.session.auth.current) ? null : "maintainer",
+    isUnattended(ctx.session.auth.current) || !hasMemoryStore(process.env)
+      ? null
+      : "maintainer",
 });
