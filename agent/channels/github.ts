@@ -28,20 +28,15 @@ const grounding = createGroundingLedger();
  * pull request.
  *
  * @remarks
- * Nobody asked for the review, so its failure is the agent's problem and not
- * something to put in front of the author, who would read a bot's error on
- * the pull request they just opened. Silence on the pull request would read
- * as a clean review, though, which is worse than an error; so the one place
- * that hears about it is the maintainer's Slack, when one is configured.
- * What could not be delivered is logged, because a check-in that silently
- * did not happen looks exactly like one that did.
+ * Nobody asked for the review, so its failure goes to the maintainer rather
+ * than to the author. Silence on the pull request would read as a clean
+ * review, which is worse than an error, so the Slack card is what carries
+ * it when a target is configured.
  *
- * Only `session.failed` calls this. eve retries a failed turn step and
- * then fails the session, so a dead review emits `turn.failed` and
- * `session.failed` in that order, and the first production review posted
- * the card twice. A session can also fail with no turn failure at all
- * (the missing Blob store did), so `session.failed` is the event that
- * always fires, and `turn.failed` only logs.
+ * Only `session.failed` calls this. A dead review emits `turn.failed` and
+ * then `session.failed`, and a session can also fail with no turn failure
+ * at all, so `session.failed` is the one event that always fires. Calling
+ * this from both sent the card twice in production.
  */
 const reportFailedReview = async (
   channel: GitHubEventContext,
@@ -84,17 +79,13 @@ const reportFailedReview = async (
  * reply is one, as a timeline comment otherwise.
  *
  * @remarks
- * Replaces eve's built-in `message.completed` handler, which posts every
- * reply as a comment. A reply that parses as a review with placed findings
- * becomes one `POST /pulls/{number}/reviews` with `event: COMMENT`, so each
- * finding sits on its line and GitHub counts the unresolved threads. The
- * verdict stays a person's: the event is fixed here and never comes from
- * the model.
+ * Replaces eve's built-in handler, which posts every reply as a comment. A
+ * reply that parses as a review becomes one `POST /pulls/{number}/reviews`
+ * with a fixed `event: COMMENT`, so the verdict never comes from the model.
  *
- * GitHub answers 422 when a line is not part of the diff. A finding the
- * model placed wrongly must not lose the whole review, so on any failure
- * the reply is posted as an ordinary comment instead and the failure is
- * logged.
+ * GitHub answers 422 when a line is not part of the diff, and one badly
+ * placed finding must not lose the whole review, so any failure falls back
+ * to an ordinary comment.
  */
 const postReply = async (
   channel: GitHubEventContext,
