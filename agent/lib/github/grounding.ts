@@ -2,36 +2,21 @@
  * Whether a review turn read anything before it answered.
  *
  * @remarks
- * A review is reasoning over code the agent read: the skill holds the
- * procedure, and `read_file`, `glob` and `grep` hold the checkout. The diff
- * in context is a summary, capped where eve truncates the patches at 20 KB
- * and says so. A turn that answers without a single tool call has therefore
- * seen a fragment of a large pull request and none of the code around it.
+ * A review is reasoning over code the agent read, and the diff in context
+ * is a truncated summary, so a turn that answers without a single tool call
+ * has seen a fragment of the change and none of the code around it. The
+ * gateway's tool-call emulation produces exactly that turn; `docs/notes.md`
+ * records how, and the four reviews on 2026-09-11 that ran this way, three
+ * of which reported nothing needing attention.
  *
- * Such a turn happens. The gateway this agent answers through emulates tool
- * calling for models that do not speak it natively, and the emulation fails
- * often enough to matter: the model's call arrives as literal text in the
- * reply rather than as a tool call, eve treats the reply as finished, and
- * the channel posts it. Four consecutive reviews failed this way on
- * 2026-09-11, three of which read "nothing here needs security attention".
- * A review that never ran must not be able to say that, which is the rule
- * `reportFailedReview` already applies to a review that died.
- *
- * The evidence is `action.result`. eve emits one per settled tool call and
- * per loaded skill, so at least one that is not an error means the loop
- * ran. Nothing here inspects which tool it was. The failure this guards
- * against produces no results at all, and a stricter rule naming a
- * particular skill or tool would suppress good reviews whenever eve renamed
- * a field.
- *
- * `stepIndex` on the reply carries the same evidence, and
- * {@link mayPostReview} accepts either. eve advances the step only in
- * `tool-loop.js`, where the loop continues past a settled tool result, so a
- * reply at step 0 never ran one. A turn that answers before calling a tool
- * emits its text as a message boundary and does not advance. Both signals
- * are read because each one can go missing on its own: a cold start loses
- * the ledger, and the step count survives a channel that never receives
- * `action.result`.
+ * Two signals attest that the loop ran and {@link mayPostReview} accepts
+ * either, because each can go missing on its own. `action.result` arrives
+ * per settled tool call and per loaded skill, and a cold start loses the
+ * ledger that collects them. eve's tool loop is the only thing that
+ * advances `stepIndex`, which survives a channel that never receives
+ * `action.result`. Neither signal looks at which tool ran. The failure
+ * produces no results at all, and a rule naming a particular skill or tool
+ * would break on a rename.
  */
 
 /** One settled action, in the shape `action.result` reports it. */
@@ -40,42 +25,22 @@ export interface ActionOutcome {
   readonly kind?: string;
 }
 
-/**
- * Turns remembered at once. A review is one turn of one session, so this
- * only bounds what a warm runtime accumulates across unrelated sessions.
- */
+/** Only bounds what a warm runtime accumulates across unrelated sessions. */
 const MAX_REMEMBERED_TURNS = 32;
 
 interface TurnRecord {
-  /** The turn settled at least one action without error. */
   grounded: boolean;
-  /** A suppressed reply was already carded for this turn. */
   reported: boolean;
 }
 
-/** What this runtime knows about the turns it has seen. */
 export interface GroundingLedger {
-  /** Whether this turn has settled at least one action without error. */
   readonly isGrounded: (turnId: string) => boolean;
-  /** Records one settled action against the turn that produced it. */
   readonly note: (turnId: string, outcome: ActionOutcome) => void;
-  /**
-   * Claims the one report a suppressed turn is allowed. True for the first
-   * caller and false for every later one, so a turn that ends in two
-   * completed messages still sends a single card.
-   */
+  /** True for the first caller only, so one turn sends one card. */
   readonly reportOnce: (turnId: string) => boolean;
 }
 
-/**
- * A ledger of which turns ran their tools.
- *
- * @remarks
- * In-memory and per-runtime, which is all it needs to be: the events it
- * reads and the reply it gates arrive in the same invocation. A cold start
- * between them loses the record and suppresses one review into the Slack
- * card, which is the safe direction to fail.
- */
+/** In-memory and per-runtime; a cold start loses the record, which suppresses a review rather than posting one. */
 export const createGroundingLedger = (
   maxTurns: number = MAX_REMEMBERED_TURNS
 ): GroundingLedger => {
@@ -117,7 +82,6 @@ export const createGroundingLedger = (
   };
 };
 
-/** The code the suppressed review is logged and carded under. */
 export const UNGROUNDED_REVIEW_CODE = "review_ungrounded";
 
 /**
@@ -129,7 +93,6 @@ export const UNGROUNDED_REVIEW_CODE = "review_ungrounded";
  * answer and judge it; nobody reads the review before the author does.
  */
 export const mayPostReview = (input: {
-  /** The turn settled an action, per the ledger. */
   readonly grounded: boolean;
   /** `stepIndex` of the completed message, which the tool loop advances. */
   readonly step: number;
