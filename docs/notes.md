@@ -46,18 +46,22 @@ Things that cost time to find out. Each one is why some line of this agent, or o
 
 **The gateway emulates tool calling, and a failed emulation arrives as prose.** AI Pass carries text only, so `packages/core/src/tools.ts` in thaipass renders the tool list into the prompt and asks for a fenced ` ```tool_call ` block, then splits the reply back into `tool_use`. When the model writes the JSON without the fence, the split does not match and the call reaches the caller as text: `{"name":"load_skill","input":{...}}I can begin once the load_skill tool result is available.` eve treats that as a finished assistant message, the channel posts it, and `baymi_turn` records `steps=1, calls=1` with no tool having run. The existing retry does not cover it. `isAbandonedToolCall` (`packages/core/src/reply.ts:96`) requires `finishReason === "tool-calls"`, and this failure arrives as `stop`, so `attempts` is 1 every time.
 
-**What makes that failure fire is not known (2026-09-12).** Each of these was ruled out by measurement, with the others held still:
+**The model is what made that failure fire, and this file said otherwise for a day (2026-09-12).** Measured through the proxy with one tool and a short prompt, then again with 18 tools and 18,148 input tokens, run one request at a time with the models interleaved:
 
-- the model: `gpt-5.6-sol` called tools on 48 of 48 requests in an interleaved matrix
-- the tool count: the gateway's own 14 days show 24.2% zero-call at 1-5 tools against 15.4% at 18-29, so more tools is not worse
-- the thinking level: 6 of 6 at each of none, low, medium and high
-- streaming: 36 of 36, once request order was interleaved rather than run a block at a time
-- the prompt size: 7,960 tokens passed 12 of 12
-- the position of the tool guide: 8 of 8 on either side of a large filler
+- `gpt-5.6-sol`: 0 tool calls out of 12, at both prompt sizes, with thinking on and off
+- `DeepSeek-V3.2`: 6 of 6
+- `Mistral-Large-3`: 5 of 6, the sixth an upstream error from a native call AI Pass could not run
+- `minimax-m2-maas`: 3 of 6
+- `claude-opus-5@azure`: 1 of 1
+- `grok-4.3`, `claude-sonnet-5@default`, every `gemini`, `Kimi-K2.7-Code`, `qwen3-next-80b`, `gpt-5.6-terra`: text only
 
-The real agent, driven locally over the real pull request that failed in production, reviewed it correctly. Bursts raise the rate: ten concurrent requests broke 9, and a block of six run last after eighteen others broke 5. Load is not required, though. The two reviews that ran after the guard shipped both failed against a quiet gateway, one request in each minute, and matched each other: `thinkingLevel: high`, `toolCount: 18`, `toolCalls: 0`, `finishReason: stop`, answered in 54 and 61 tokens. Upstream degradation under load does not cover those. The open lead is from the same two turns. `reasoningChars` was 0 on both while the level resolved to `high`, so the model returned no reasoning before answering.
+Review quality is not what separates them. Given a diff with four planted flaws, `gpt-5.6-sol`, `Mistral-Large-3`, `DeepSeek-V3.2` and `claude-opus-5@azure` each found all four, `gpt-5.6-sol` included. It reviews well and will not use the emulated protocol, so it never reaches the code.
 
-Three readings in this file have since been wrong. That tool-list length drives the failure, and that a particular model does, were both measured while requests ran concurrently. That bursts are what reproduce it did not survive the two quiet failures above. Run the conditions sequentially and interleaved, or the result follows the load rather than the condition.
+The model can see the guide. Asked to name the first tool the prompt lists, `gpt-5.6-sol` answers `load_skill`. `claude-sonnet-5@default` and `grok-4.3` answer `web_search`, which is AI Pass's own tool shadowing the caller's. So production was not failing to parse a call. The model was reporting, accurately, that it could not call the tools it had been shown, which is what the first failed review said in as many words.
+
+An earlier matrix in this file cleared `gpt-5.6-sol` at 48 of 48. That run is void. It happened inside the hour where 173 of 185 requests carried a `data-model_switched` frame, so most of it never ran on the model named, while no production review has ever carried one. `switchedModel` on `aipass_proxy_request` is there to make that visible; every request in the measurements above recorded no switch.
+
+Four readings in this file have now been wrong: that tool-list length drives the failure, that a particular model does not, that bursts are what reproduce it, and that the cause was unknown. The first three were measured under concurrent load or under silent model substitution. Run the conditions sequentially, interleaved, and check `switchedModel` before believing any of it.
 
 **`getPullRequestContext` is the one-call read.** It returns the pull request, its metadata and recent comments together; `listPullRequestFiles` adds the patches. On a GitHub turn neither is needed for the pull request under review, since the diff is already in context and the code is in the checkout.
 
