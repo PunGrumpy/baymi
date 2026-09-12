@@ -154,12 +154,12 @@ const postReply = async (
  *   `postReply` submits as a review when it is one and posts as a comment
  *   otherwise. The agent never calls a comment tool to answer where it
  *   already is.
- * - An unattended review is posted only if its turn ran the tool loop, which
- *   `action.result` and the reply's own `stepIndex` each attest to.
- *   `#lib/github/grounding` explains why: a turn whose tool calls never
- *   reached the runtime has read neither the skill nor the checkout, and a
- *   pull request must not receive its verdict. It takes the same route as a
- *   review that died — nothing on the pull request, one card in Slack.
+ * - An unattended review is posted only if its turn ran the tool loop.
+ *   `action.result` and the reply's own `stepIndex` each attest to that,
+ *   and `#lib/github/grounding` explains why. A turn whose tool calls never
+ *   reached the runtime has read neither the skill nor the checkout, so it
+ *   must not post a verdict on the pull request. It takes the same route as
+ *   a review that died: nothing on the pull request, one card in Slack.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
  */

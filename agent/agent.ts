@@ -4,31 +4,31 @@ import { anthropic } from "#lib/anthropic";
 import { env } from "#lib/env";
 
 /**
- * The effort the agent asks for, named on the request as well as set as
- * `reasoning`.
+ * The effort the agent asks for. It goes on the request by name as well as
+ * through `reasoning`.
  *
  * @remarks
- * `reasoning` alone does not survive the trip. The AI SDK recognizes no
- * Anthropic model behind `ANTHROPIC_BASE_URL`, so instead of naming the
- * effort it converts `reasoning` into a thinking budget derived from the
- * call's output cap: 3,686 tokens, measured off the wire on 2026-09-12. The
- * gateway has no token figure for a level and reads a budget that small as
- * its lowest one, so every review so far has run at `low` while this file
- * asked for the most. Naming the effort as well puts it on the request as
- * `output_config.effort`, which the gateway prefers over the budget.
+ * `reasoning` on its own does not reach the gateway. The AI SDK recognizes
+ * no Anthropic model behind `ANTHROPIC_BASE_URL`, so rather than naming the
+ * effort it converts `reasoning` into a thinking budget calculated from the
+ * call's output cap. That budget measured 3,686 tokens on the wire on
+ * 2026-09-12. The gateway has no token figure for a level, so it reads a
+ * budget that small as its lowest one, and every review before this one ran
+ * at `low` while this file asked for the most. Naming the effort puts it on
+ * the request as `output_config.effort`, which the gateway reads ahead of
+ * the budget.
  *
- * `thinking` has to be named alongside it. The AI SDK derives the thinking
- * block from `reasoning` only while no effort is set, so asking for the
- * effort on its own drops the block entirely, and a request with no
- * thinking block is one the gateway runs with no thinking at all — the
- * opposite of what this asks for.
+ * `thinking` has to be named alongside it. The AI SDK builds the thinking
+ * block from `reasoning` only while no effort is set, so setting the effort
+ * on its own removes the block, and a request that carries no thinking
+ * block runs with no thinking at all.
  *
- * This file names no budget, and the request carries one regardless: the
- * SDK fills in 1,024 tokens and says so in a warning that only the
- * deployment log shows. It costs nothing, because the gateway reads the
- * effort ahead of the budget — confirmed in production on 2026-09-12,
- * where a review resolved to `high` against `low` on the turn before it.
- * What the budget on the wire is not is a figure chosen here.
+ * This file names no budget and the request carries one anyway. The SDK
+ * fills in 1,024 tokens and reports that in a warning only the deployment
+ * log carries. The figure does not matter here, because the gateway reads
+ * the effort first. Production confirmed that on 2026-09-12, where a review
+ * resolved to `high` against `low` on the turn before it. The budget on the
+ * wire is the SDK's default, not a figure this file chose.
  */
 const EFFORT = "xhigh";
 
