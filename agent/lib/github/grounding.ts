@@ -1,35 +1,37 @@
 /**
- * Whether a review turn actually read anything before it answered.
+ * Whether a review turn read anything before it answered.
  *
  * @remarks
- * A review is reasoning over code the agent went and read: the skill holds
- * the procedure, and `read_file`, `glob` and `grep` hold the checkout. The
- * diff in context is a summary and is capped (eve truncates the patches at
- * 20 KB and says so), so a turn that answers without a single tool call has
+ * A review is reasoning over code the agent read: the skill holds the
+ * procedure, and `read_file`, `glob` and `grep` hold the checkout. The diff
+ * in context is a summary, capped where eve truncates the patches at 20 KB
+ * and says so. A turn that answers without a single tool call has therefore
  * seen a fragment of a large pull request and none of the code around it.
  *
- * That turn is not hypothetical. The gateway this agent answers through
- * emulates tool calling for models that do not speak it natively, and the
- * emulation fails often enough to matter: the model's call arrives as
- * literal text in the reply rather than as a tool call, eve sees a finished
- * message, and the channel posts it. Observed on four consecutive reviews on
+ * Such a turn happens. The gateway this agent answers through emulates tool
+ * calling for models that do not speak it natively, and the emulation fails
+ * often enough to matter: the model's call arrives as literal text in the
+ * reply rather than as a tool call, eve treats the reply as finished, and
+ * the channel posts it. Four consecutive reviews failed this way on
  * 2026-09-11, three of which read "nothing here needs security attention".
- * A review that never ran must not be able to say that, which is the same
- * rule `reportFailedReview` already applies to a review that died.
+ * A review that never ran must not be able to say that, which is the rule
+ * `reportFailedReview` already applies to a review that died.
  *
- * The evidence is `action.result`: eve emits one per settled tool call and
- * per loaded skill. At least one that is not an error means the loop ran.
- * Nothing here inspects which tool it was; the failure this guards against
- * produces no results at all, and a stricter rule (this named skill, that
- * named tool) would suppress good reviews whenever eve renamed a field.
+ * The evidence is `action.result`. eve emits one per settled tool call and
+ * per loaded skill, so at least one that is not an error means the loop
+ * ran. Nothing here inspects which tool it was. The failure this guards
+ * against produces no results at all, and a stricter rule naming a
+ * particular skill or tool would suppress good reviews whenever eve renamed
+ * a field.
  *
- * `stepIndex` on the reply says the same thing from the other side, and
+ * `stepIndex` on the reply carries the same evidence, and
  * {@link mayPostReview} accepts either. eve advances the step only in
  * `tool-loop.js`, where the loop continues past a settled tool result, so a
- * reply at step 0 never ran one; a turn that answers before calling a tool
- * emits its text as a message boundary and does not advance. Two signals
- * because they fail apart: the ledger is lost across a cold start, and the
- * step count survives a channel that never receives `action.result`.
+ * reply at step 0 never ran one. A turn that answers before calling a tool
+ * emits its text as a message boundary and does not advance. Both signals
+ * are read because each one can go missing on its own: a cold start loses
+ * the ledger, and the step count survives a channel that never receives
+ * `action.result`.
  */
 
 /** One settled action, in the shape `action.result` reports it. */
