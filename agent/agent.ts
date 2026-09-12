@@ -21,9 +21,14 @@ import { env } from "#lib/env";
  * block from `reasoning` only while no effort is set, so asking for the
  * effort on its own drops the block entirely, and a request with no
  * thinking block is one the gateway runs with no thinking at all — the
- * opposite of what this asks for. No budget goes with it on purpose: the
- * effort is what the gateway reads, and a budget larger than the call's
- * output cap is invalid on an endpoint that reads budgets instead.
+ * opposite of what this asks for.
+ *
+ * This file names no budget, and the request carries one regardless: the
+ * SDK fills in 1,024 tokens and says so in a warning that only the
+ * deployment log shows. It costs nothing, because the gateway reads the
+ * effort ahead of the budget — confirmed in production on 2026-09-12,
+ * where a review resolved to `high` against `low` on the turn before it.
+ * What the budget on the wire is not is a figure chosen here.
  */
 const EFFORT = "xhigh";
 
