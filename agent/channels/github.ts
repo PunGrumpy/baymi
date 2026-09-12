@@ -7,6 +7,11 @@ import { failureNotice, logFailure } from "#lib/failure";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { githubCredentials } from "#lib/github/credentials";
 import {
+  createGroundingLedger,
+  mayPostReview,
+  UNGROUNDED_REVIEW_CODE,
+} from "#lib/github/grounding";
+import {
   isUnattendedReviewState,
   pullRequestUrl,
   shouldReviewPullRequest,
@@ -14,6 +19,9 @@ import {
 import { parseReview, renderReview, splitComment } from "#lib/github/review";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
 import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
+
+/** Which turns of this runtime settled an action; see `#lib/github/grounding`. */
+const grounding = createGroundingLedger();
 
 /**
  * Tells the maintainer on Slack that a review died, and posts nothing on the
@@ -146,6 +154,12 @@ const postReply = async (
  *   `postReply` submits as a review when it is one and posts as a comment
  *   otherwise. The agent never calls a comment tool to answer where it
  *   already is.
+ * - An unattended review is posted only if its turn ran the tool loop, which
+ *   `action.result` and the reply's own `stepIndex` each attest to.
+ *   `#lib/github/grounding` explains why: a turn whose tool calls never
+ *   reached the runtime has read neither the skill nor the checkout, and a
+ *   pull request must not receive its verdict. It takes the same route as a
+ *   review that died — nothing on the pull request, one card in Slack.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
  */
@@ -153,8 +167,28 @@ export default githubChannel({
   botName: BOT_NAME,
   credentials: githubCredentials,
   events: {
-    async "message.completed"(event, channel) {
+    "action.result"(event) {
+      grounding.note(event.turnId, event.result);
+    },
+    async "message.completed"(event, channel, ctx) {
       if (event.finishReason === "tool-calls" || !event.message) {
+        return;
+      }
+      if (
+        !mayPostReview({
+          grounded: grounding.isGrounded(event.turnId),
+          step: event.stepIndex,
+          unattended: isUnattended(ctx.session.auth.current),
+        })
+      ) {
+        if (grounding.reportOnce(event.turnId)) {
+          const failure = { code: UNGROUNDED_REVIEW_CODE };
+          logFailure("review", {
+            ...failure,
+            message: "the turn answered without settling a single action",
+          });
+          await reportFailedReview(channel, failure);
+        }
         return;
       }
       await postReply(channel, event.message);
