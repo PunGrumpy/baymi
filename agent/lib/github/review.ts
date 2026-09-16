@@ -22,11 +22,7 @@ export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 
 export type Severity = (typeof SEVERITIES)[number];
 
-/**
- * One finding, on a file of the pull request's head. The line is what the
- * model wrote, or `null` when it named only the file; `#lib/github/anchors`
- * settles both against the diff before anything is posted.
- */
+/** One finding as the model wrote it; `line` is `null` when it named only the file. */
 export interface ReviewFinding {
   readonly body: string;
   readonly line: number | null;
@@ -55,8 +51,8 @@ const FINDING_LOCATION =
 interface FindingBlock {
   readonly heading: string;
   readonly lines: string[];
-  readonly line: number | null;
-  readonly path: string | null;
+  line: number | null;
+  path: string | null;
   readonly severity: Severity;
   readonly title: string;
 }
@@ -75,10 +71,9 @@ const trimBlock = (lines: readonly string[]): string => lines.join("\n").trim();
  * Splits the model's reply into the review body and its findings.
  *
  * @remarks
- * Returns `null` when the reply is not a review at all, so the caller posts
- * it as it is. A finding block with no `File:` line at all names no place,
- * so it is folded back into the body under its own heading rather than
- * dropped: the reader still sees it, only not on a line.
+ * Returns `null` when the reply is not a review at all. A finding block
+ * with no `File:` line is folded back into the body under its heading
+ * rather than dropped.
  */
 export const parseReview = (message: string): ParsedReview | null => {
   const text = message.trim();
@@ -108,12 +103,9 @@ export const parseReview = (message: string): ParsedReview | null => {
     }
     const location = FINDING_LOCATION.exec(line)?.groups;
     if (location?.path && current.path === null) {
-      const lineNumber =
-        location.line === undefined ? null : Number(location.line);
-      Object.assign(current, {
-        line: lineNumber !== null && lineNumber > 0 ? lineNumber : null,
-        path: location.path,
-      });
+      const lineNumber = Number(location.line);
+      current.line = lineNumber > 0 ? lineNumber : null;
+      current.path = location.path;
       continue;
     }
     current.lines.push(line);
@@ -137,10 +129,9 @@ export const parseReview = (message: string): ParsedReview | null => {
 
 const ID_LENGTH = 8;
 
-/** A finding settled on a line the diff contains; see `#lib/github/anchors`. */
+/** A finding on a line the diff contains; `#lib/github/anchors` makes these. */
 export type PlacedFinding = ReviewFinding & { readonly line: number };
 
-/** The review after anchoring: only findings GitHub can place. */
 export interface AnchoredReview {
   readonly body: string;
   readonly findings: readonly PlacedFinding[];
@@ -172,7 +163,8 @@ export const reviewMarker = (
 ): string =>
   `<!-- baymi:review findings=${findingCount}${shaAttribute(headSha)} -->`;
 
-const capitalize = (severity: Severity): string =>
+/** `high` as `High`, for the lead of a comment. */
+export const severityLabel = (severity: Severity): string =>
   `${severity[0]?.toUpperCase() ?? ""}${severity.slice(1)}`;
 
 /** One inline comment, in the shape GitHub's review API takes. */
@@ -200,7 +192,7 @@ export const renderReview = (
   body: `${review.body}\n\n${reviewMarker(review.findings.length, headSha)}`.trim(),
   comments: review.findings.map((finding) => ({
     body: [
-      `**${capitalize(finding.severity)}** · ${finding.title}`,
+      `**${severityLabel(finding.severity)}** · ${finding.title}`,
       finding.body,
       findingMarker(finding, headSha),
     ]

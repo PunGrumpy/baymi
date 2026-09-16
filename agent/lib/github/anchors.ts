@@ -1,18 +1,17 @@
 /**
- * Places each finding on a line GitHub will accept, using the pull
- * request's own diff.
+ * Places each finding on a line of the pull request's diff.
  *
  * @remarks
- * The model reads a unified diff, so a line number it writes is a
- * hand-computed offset from a hunk header, and one wrong number sends the
- * whole review back to the timeline as a comment. The channel fetches the
- * diff again after the reply and settles the anchors here: a finding with
- * no line lands on the file's first added line, a finding with a line the
- * diff does not contain moves to the nearest line it does, and a finding on
- * a file the diff does not touch cannot be placed at all and goes back
- * into the body.
+ * The model computes line numbers by hand from hunk headers, and one wrong
+ * number fails the whole review. So the channel fetches the diff after the
+ * reply and settles every finding here: no line goes to the file's first
+ * added line, a line outside the diff to the nearest changed line, and a
+ * file the diff does not touch into the body.
  */
 
+import { z } from "zod";
+
+import { severityLabel } from "#lib/github/review";
 import type {
   AnchoredReview,
   ParsedReview,
@@ -20,27 +19,24 @@ import type {
   ReviewFinding,
 } from "#lib/github/review";
 
-/** One changed file, in the shape `GET /pulls/{number}/files` returns. */
-export interface DiffFile {
-  readonly filename: string;
-  readonly patch?: string | null;
-}
+/** The body of `GET /pulls/{number}/files`, as much of it as is read. */
+export const DIFF_FILES = z.array(
+  z.object({
+    filename: z.string(),
+    patch: z.string().optional(),
+  })
+);
 
-/** `@@ -12,4 +15,6 @@`; only the new-side start matters here. */
+export type DiffFile = z.infer<typeof DIFF_FILES>[number];
+
 const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(?<start>\d+)(?:,\d+)? @@/u;
 
-/** The lines of one file GitHub accepts on the `RIGHT` side. */
+/** The new-side lines GitHub accepts a comment on, by how they got there. */
 export interface FileLines {
-  /** Lines the change added, in order. */
   readonly added: readonly number[];
-  /** Unchanged lines inside a hunk, in order. */
   readonly context: readonly number[];
 }
 
-/**
- * Reads the new-side line numbers out of a unified patch. Removed lines
- * have no new-side number, so they never appear.
- */
 export const linesOfPatch = (patch: string): FileLines => {
   const added: number[] = [];
   const context: number[] = [];
@@ -53,46 +49,40 @@ export const linesOfPatch = (patch: string): FileLines => {
       inHunk = true;
       continue;
     }
-    if (!inHunk) {
+    if (!inHunk || raw.startsWith("-") || raw.startsWith("\\")) {
       continue;
     }
     if (raw.startsWith("+")) {
       added.push(line);
-      line += 1;
-    } else if (raw.startsWith("-") || raw.startsWith("\\")) {
-      // A removed line, or "\ No newline at end of file".
     } else {
       context.push(line);
-      line += 1;
     }
+    line += 1;
   }
   return { added, context };
 };
 
-/** The placeable lines of every file in the diff, keyed by path. */
 export const indexDiff = (
   files: readonly DiffFile[]
 ): ReadonlyMap<string, FileLines> => {
   const index = new Map<string, FileLines>();
   for (const file of files) {
-    if (file.patch) {
+    if (file.patch !== undefined) {
       index.set(file.filename, linesOfPatch(file.patch));
     }
   }
   return index;
 };
 
-/** The line closest to `target`, the lower one on a tie. */
+/** The candidate closest to `target`; the lower one on a tie. */
 const nearest = (
-  candidates: readonly number[],
+  first: number,
+  rest: readonly number[],
   target: number
-): number | null => {
-  let best: number | null = null;
-  for (const candidate of candidates) {
-    if (
-      best === null ||
-      Math.abs(candidate - target) < Math.abs(best - target)
-    ) {
+): number => {
+  let best = first;
+  for (const candidate of rest) {
+    if (Math.abs(candidate - target) < Math.abs(best - target)) {
       best = candidate;
     }
   }
@@ -100,14 +90,9 @@ const nearest = (
 };
 
 /**
- * The line a finding should sit on, or `null` when the file gives it
- * nowhere to sit.
- *
- * @remarks
- * A line the diff contains is kept as written. Otherwise the added lines
- * are preferred, because a finding is about what the change did; a file
- * with only removals falls back to its context lines, since GitHub cannot
- * anchor on the removed side of a review comment.
+ * Keeps a line the diff contains. Otherwise prefers the added lines, and
+ * falls back to context lines for a file that only lost lines, since a
+ * comment cannot sit on the removed side.
  */
 export const placeLine = (
   lines: FileLines,
@@ -119,42 +104,25 @@ export const placeLine = (
   ) {
     return requested;
   }
-  const preferred = lines.added.length > 0 ? lines.added : lines.context;
-  if (preferred.length === 0) {
+  const [first, ...rest] = lines.added.length > 0 ? lines.added : lines.context;
+  if (first === undefined) {
     return null;
   }
-  return requested === null
-    ? (preferred[0] ?? null)
-    : nearest(preferred, requested);
+  return requested === null ? first : nearest(first, rest, requested);
 };
 
-/**
- * A finding the diff cannot place, rendered for the review body: the same
- * severity lead as an inline comment, and the file it belongs to, so the
- * reader is not left with a heading alone.
- */
+/** A finding the diff cannot place, written for the review body. */
 export const unplacedFinding = (finding: ReviewFinding): string => {
-  const severity = `${finding.severity[0]?.toUpperCase() ?? ""}${finding.severity.slice(1)}`;
   const location =
     finding.line === null ? finding.path : `${finding.path}:${finding.line}`;
-  return [`**${severity}** · ${finding.title} (\`${location}\`)`, finding.body]
-    .filter((part) => part.length > 0)
-    .join("\n\n");
+  const lead = `**${severityLabel(finding.severity)}** · ${finding.title} (\`${location}\`)`;
+  return finding.body.length > 0 ? `${lead}\n\n${finding.body}` : lead;
 };
 
-/** The count line, which is all of the model's body that is posted. */
-const headline = (body: string): string => body.split("\n")[0]?.trim() ?? "";
-
 /**
- * Settles every finding against the diff, and cuts the body to its first
- * line.
- *
- * @remarks
- * The review is the inline comments; the body is the one line that counts
- * them, the way Vercel Agent posts (`docs/notes.md`). Whatever else the
- * model wrote above the first finding is not posted, so a summary that
- * slips past the skill still does not reach the pull request. Findings
- * that cannot be placed follow the count line, in order.
+ * Settles every finding against the diff and cuts the body to its first
+ * line, the count. The review is the inline comments; whatever else the
+ * model wrote above the first finding is not posted.
  */
 export const anchorReview = (
   review: ParsedReview,
@@ -172,8 +140,9 @@ export const anchorReview = (
       placed.push({ ...finding, line });
     }
   }
+  const headline = review.body.split("\n")[0]?.trim() ?? "";
   return {
-    body: [headline(review.body), ...unplaced].join("\n\n").trim(),
+    body: [headline, ...unplaced].join("\n\n").trim(),
     findings: placed,
   };
 };

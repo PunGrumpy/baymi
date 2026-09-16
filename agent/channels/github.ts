@@ -4,8 +4,7 @@ import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
-import { anchorReview } from "#lib/github/anchors";
-import type { DiffFile } from "#lib/github/anchors";
+import { anchorReview, DIFF_FILES } from "#lib/github/anchors";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { githubCredentials } from "#lib/github/credentials";
 import {
@@ -21,7 +20,7 @@ import {
   shouldReviewPullRequest,
 } from "#lib/github/pull-requests";
 import { parseReview, renderReview, splitComment } from "#lib/github/review";
-import type { AnchoredReview } from "#lib/github/review";
+import type { AnchoredReview, ParsedReview } from "#lib/github/review";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
 import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
 
@@ -79,14 +78,10 @@ const reportFailedReview = async (
   }
 };
 
-/** GitHub pages this endpoint; the diff in context stops at 50 files anyway. */
+/** One page; the diff in context stops at 50 files anyway. */
 const DIFF_FILES_PER_PAGE = 100;
 
-/**
- * The reason a completed message must not be posted, or `null` when it may.
- * Two gates, in order: the turn read something, and what it wrote is a
- * review. Both pass for a person who asked; `#lib/github/grounding`.
- */
+/** Why a completed message must not be posted, or `null` when it may. */
 const whyToHoldBack = (input: {
   readonly grounded: boolean;
   readonly message: string;
@@ -113,23 +108,19 @@ const whyToHoldBack = (input: {
   return null;
 };
 
-/**
- * Settles the findings against the pull request's diff, so each one sits
- * on a line GitHub will take. When the diff cannot be read, every finding
- * that names a line is trusted as written and the rest go into the body.
- */
+/** When the diff cannot be read, findings with a line are trusted as written. */
 const anchorAgainstDiff = async (
   channel: GitHubEventContext,
-  review: NonNullable<ReturnType<typeof parseReview>>,
+  review: ParsedReview,
   pullRequestNumber: number
 ): Promise<AnchoredReview> => {
   const { owner, repo } = channel.state;
   try {
-    const { body } = await channel.github.request<readonly DiffFile[]>({
+    const { body } = await channel.github.request({
       method: "GET",
       path: `/repos/${owner}/${repo}/pulls/${pullRequestNumber}/files?per_page=${DIFF_FILES_PER_PAGE}`,
     });
-    return anchorReview(review, body);
+    return anchorReview(review, DIFF_FILES.parse(body));
   } catch (error) {
     logFailure("review", { message: `diff not read: ${String(error)}` });
     return {
@@ -150,11 +141,9 @@ const anchorAgainstDiff = async (
  * reply that parses as a review becomes one `POST /pulls/{number}/reviews`
  * with a fixed `event: COMMENT`, so the verdict never comes from the model.
  *
- * The findings are anchored against the diff first (`#lib/github/anchors`),
- * because the model computes line numbers by hand from hunk headers and a
- * wrong one would fail the whole review. GitHub still answers 422 for a
- * line it will not take, and one badly placed finding must not lose the
- * review, so any failure falls back to an ordinary comment.
+ * GitHub answers 422 for a line it will not take, and one badly placed
+ * finding must not lose the review, so any failure falls back to an
+ * ordinary comment.
  */
 const postReply = async (
   channel: GitHubEventContext,
@@ -219,12 +208,8 @@ const postReply = async (
  *   otherwise. The agent never calls a comment tool to answer where it
  *   already is.
  * - An unattended review is posted only if its turn read something and
- *   wrote a review. `action.result` and the reply's own `stepIndex` attest
- *   to the reading, and `parseReview` to the writing; `#lib/github/grounding`
- *   explains both. A turn that read nothing, or that answered with
- *   something other than a review, must not post on the pull request. It
- *   takes the same route as a review that died: nothing on the pull
- *   request, one card in Slack.
+ *   wrote a review (`#lib/github/grounding`). Otherwise it takes the route
+ *   of a review that died: nothing on the pull request, one card in Slack.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
  */

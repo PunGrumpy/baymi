@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   anchorReview,
+  DIFF_FILES,
   linesOfPatch,
   placeLine,
   unplacedFinding,
@@ -26,8 +27,22 @@ const PATCH = [
 
 const FILES = [
   { filename: "src/message.ts", patch: PATCH },
-  { filename: "bun.lockb", patch: null },
+  { filename: "bun.lockb" },
 ];
+
+describe("the diff files schema", () => {
+  it("keeps the filename and patch and drops the rest", () => {
+    expect(
+      DIFF_FILES.parse([{ additions: 1, filename: "a.ts", patch: "@@" }])
+    ).toStrictEqual([{ filename: "a.ts", patch: "@@" }]);
+  });
+
+  it("rejects a body that is not a file list", () => {
+    expect(() => DIFF_FILES.parse({ message: "Not Found" })).toThrow(
+      "expected array"
+    );
+  });
+});
 
 describe(linesOfPatch, () => {
   it("numbers the new side and skips removed lines", () => {
