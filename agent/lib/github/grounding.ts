@@ -14,9 +14,12 @@
  * per settled tool call and per loaded skill, and a cold start loses the
  * ledger that collects them. eve's tool loop is the only thing that
  * advances `stepIndex`, which survives a channel that never receives
- * `action.result`. Neither signal looks at which tool ran. The failure
- * produces no results at all, and a rule naming a particular skill or tool
- * would break on a rename.
+ * `action.result`. Neither signal looks at which tool ran; a rule naming a
+ * particular tool would break on a rename.
+ *
+ * Loading the skill is not reading: on 2026-09-16 three reviews loaded it
+ * and answered from the truncated diff (`docs/notes.md`). So a skill load
+ * does not ground a turn, and the step escape asks for two steps.
  */
 
 /** One settled action, in the shape `action.result` reports it. */
@@ -24,6 +27,11 @@ export interface ActionOutcome {
   readonly isError?: boolean;
   readonly kind?: string;
 }
+
+const SKILL_LOAD_KIND = "load-skill-result";
+
+/** The skill load and one read. */
+const STEPS_BEFORE_A_GROUNDED_REPLY = 2;
 
 /** Only bounds what a warm runtime accumulates across unrelated sessions. */
 const MAX_REMEMBERED_TURNS = 32;
@@ -66,7 +74,7 @@ export const createGroundingLedger = (
       return turns.get(turnId)?.grounded === true;
     },
     note(turnId, outcome) {
-      if (outcome.isError === true) {
+      if (outcome.isError === true || outcome.kind === SKILL_LOAD_KIND) {
         return;
       }
       record(turnId).grounded = true;
@@ -84,6 +92,19 @@ export const createGroundingLedger = (
 
 export const UNGROUNDED_REVIEW_CODE = "review_ungrounded";
 
+export const NOT_A_REVIEW_CODE = "review_not_a_review";
+
+/**
+ * Whether the reply may be posted given the parser's verdict on it. A
+ * turn can run its tools and still answer with something that is not a
+ * review; on 2026-09-16 the model wrote a tool result in its own voice
+ * (`docs/notes.md`). A person who asked still gets whatever it wrote.
+ */
+export const isReviewReply = (input: {
+  readonly parsed: boolean;
+  readonly unattended: boolean;
+}): boolean => input.parsed || !input.unattended;
+
 /**
  * Whether this reply may be posted on the pull request.
  *
@@ -97,4 +118,7 @@ export const mayPostReview = (input: {
   /** `stepIndex` of the completed message, which the tool loop advances. */
   readonly step: number;
   readonly unattended: boolean;
-}): boolean => input.grounded || input.step > 0 || !input.unattended;
+}): boolean =>
+  input.grounded ||
+  input.step >= STEPS_BEFORE_A_GROUNDED_REPLY ||
+  !input.unattended;

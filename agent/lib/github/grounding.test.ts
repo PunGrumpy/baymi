@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createGroundingLedger, mayPostReview } from "#lib/github/grounding";
+import {
+  createGroundingLedger,
+  isReviewReply,
+  mayPostReview,
+} from "#lib/github/grounding";
 
 const toolResult = { kind: "tool-result" };
 const skillLoaded = { kind: "load-skill-result" };
@@ -12,12 +16,18 @@ describe(createGroundingLedger, () => {
     expect(ledger.isGrounded("turn-1")).toBeFalsy();
   });
 
-  it("grounds a turn on one settled tool call, or on a loaded skill", () => {
+  it("grounds a turn on one settled tool call", () => {
     const ledger = createGroundingLedger();
     ledger.note("turn-1", toolResult);
-    ledger.note("turn-2", skillLoaded);
     expect(ledger.isGrounded("turn-1")).toBeTruthy();
-    expect(ledger.isGrounded("turn-2")).toBeTruthy();
+  });
+
+  it("does not ground a turn that only loaded the skill", () => {
+    const ledger = createGroundingLedger();
+    ledger.note("turn-1", skillLoaded);
+    expect(ledger.isGrounded("turn-1")).toBeFalsy();
+    ledger.note("turn-1", toolResult);
+    expect(ledger.isGrounded("turn-1")).toBeTruthy();
   });
 
   it("does not ground a turn whose only action errored", () => {
@@ -70,10 +80,16 @@ describe(mayPostReview, () => {
     ).toBeTruthy();
   });
 
-  it("accepts an advanced step when the ledger has nothing", () => {
+  it("accepts two advanced steps when the ledger has nothing", () => {
+    expect(
+      mayPostReview({ grounded: false, step: 2, unattended: true })
+    ).toBeTruthy();
+  });
+
+  it("holds back a turn whose one step was the skill load", () => {
     expect(
       mayPostReview({ grounded: false, step: 1, unattended: true })
-    ).toBeTruthy();
+    ).toBeFalsy();
   });
 
   it("always answers a person who asked, grounded or not", () => {
@@ -82,5 +98,16 @@ describe(mayPostReview, () => {
         mayPostReview({ grounded, step: 0, unattended: false })
       ).toBeTruthy();
     }
+  });
+});
+
+describe(isReviewReply, () => {
+  it("holds back an unattended reply the parser rejected", () => {
+    expect(isReviewReply({ parsed: false, unattended: true })).toBeFalsy();
+  });
+
+  it("passes a parsed review, and anything a person asked for", () => {
+    expect(isReviewReply({ parsed: true, unattended: true })).toBeTruthy();
+    expect(isReviewReply({ parsed: false, unattended: false })).toBeTruthy();
   });
 });

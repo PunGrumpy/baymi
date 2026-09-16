@@ -4,11 +4,14 @@ import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
+import { anchorReview, DIFF_FILES } from "#lib/github/anchors";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { githubCredentials } from "#lib/github/credentials";
 import {
   createGroundingLedger,
+  isReviewReply,
   mayPostReview,
+  NOT_A_REVIEW_CODE,
   UNGROUNDED_REVIEW_CODE,
 } from "#lib/github/grounding";
 import {
@@ -17,6 +20,7 @@ import {
   shouldReviewPullRequest,
 } from "#lib/github/pull-requests";
 import { parseReview, renderReview, splitComment } from "#lib/github/review";
+import type { AnchoredReview, ParsedReview } from "#lib/github/review";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
 import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
 
@@ -74,6 +78,60 @@ const reportFailedReview = async (
   }
 };
 
+/** One page; the diff in context stops at 50 files anyway. */
+const DIFF_FILES_PER_PAGE = 100;
+
+/** Why a completed message must not be posted, or `null` when it may. */
+const whyToHoldBack = (input: {
+  readonly grounded: boolean;
+  readonly message: string;
+  readonly step: number;
+  readonly unattended: boolean;
+}): { readonly code: string; readonly message: string } | null => {
+  if (!mayPostReview(input)) {
+    return {
+      code: UNGROUNDED_REVIEW_CODE,
+      message: "the turn answered without reading anything",
+    };
+  }
+  if (
+    !isReviewReply({
+      parsed: parseReview(input.message) !== null,
+      unattended: input.unattended,
+    })
+  ) {
+    return {
+      code: NOT_A_REVIEW_CODE,
+      message: "the turn answered with something that is not a review",
+    };
+  }
+  return null;
+};
+
+/** When the diff cannot be read, findings with a line are trusted as written. */
+const anchorAgainstDiff = async (
+  channel: GitHubEventContext,
+  review: ParsedReview,
+  pullRequestNumber: number
+): Promise<AnchoredReview> => {
+  const { owner, repo } = channel.state;
+  try {
+    const { body } = await channel.github.request({
+      method: "GET",
+      path: `/repos/${owner}/${repo}/pulls/${pullRequestNumber}/files?per_page=${DIFF_FILES_PER_PAGE}`,
+    });
+    return anchorReview(review, DIFF_FILES.parse(body));
+  } catch (error) {
+    logFailure("review", { message: `diff not read: ${String(error)}` });
+    return {
+      body: review.body,
+      findings: review.findings.flatMap((finding) =>
+        finding.line === null ? [] : [{ ...finding, line: finding.line }]
+      ),
+    };
+  }
+};
+
 /**
  * Posts the turn's reply: as a GitHub review with inline comments when the
  * reply is one, as a timeline comment otherwise.
@@ -83,16 +141,20 @@ const reportFailedReview = async (
  * reply that parses as a review becomes one `POST /pulls/{number}/reviews`
  * with a fixed `event: COMMENT`, so the verdict never comes from the model.
  *
- * GitHub answers 422 when a line is not part of the diff, and one badly
- * placed finding must not lose the whole review, so any failure falls back
- * to an ordinary comment.
+ * GitHub answers 422 for a line it will not take, and one badly placed
+ * finding must not lose the review, so any failure falls back to an
+ * ordinary comment.
  */
 const postReply = async (
   channel: GitHubEventContext,
   message: string
 ): Promise<void> => {
   const { headSha, owner, pullRequestNumber, repo } = channel.state;
-  const review = pullRequestNumber === null ? null : parseReview(message);
+  const parsed = pullRequestNumber === null ? null : parseReview(message);
+  const review =
+    parsed === null || pullRequestNumber === null
+      ? null
+      : await anchorAgainstDiff(channel, parsed, pullRequestNumber);
   if (review !== null && review.findings.length > 0) {
     const rendered = renderReview(review, headSha);
     const body: GitHubJsonObject =
@@ -145,12 +207,9 @@ const postReply = async (
  *   `postReply` submits as a review when it is one and posts as a comment
  *   otherwise. The agent never calls a comment tool to answer where it
  *   already is.
- * - An unattended review is posted only if its turn ran the tool loop.
- *   `action.result` and the reply's own `stepIndex` each attest to that,
- *   and `#lib/github/grounding` explains why. A turn whose tool calls never
- *   reached the runtime has read neither the skill nor the checkout, so it
- *   must not post a verdict on the pull request. It takes the same route as
- *   a review that died: nothing on the pull request, one card in Slack.
+ * - An unattended review is posted only if its turn read something and
+ *   wrote a review (`#lib/github/grounding`). Otherwise it takes the route
+ *   of a review that died: nothing on the pull request, one card in Slack.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
  */
@@ -165,20 +224,17 @@ export default githubChannel({
       if (event.finishReason === "tool-calls" || !event.message) {
         return;
       }
-      if (
-        !mayPostReview({
-          grounded: grounding.isGrounded(event.turnId),
-          step: event.stepIndex,
-          unattended: isUnattended(ctx.session.auth.current),
-        })
-      ) {
+      const unattended = isUnattended(ctx.session.auth.current);
+      const holdBack = whyToHoldBack({
+        grounded: grounding.isGrounded(event.turnId),
+        message: event.message,
+        step: event.stepIndex,
+        unattended,
+      });
+      if (holdBack !== null) {
         if (grounding.reportOnce(event.turnId)) {
-          const failure = { code: UNGROUNDED_REVIEW_CODE };
-          logFailure("review", {
-            ...failure,
-            message: "the turn answered without settling a single action",
-          });
-          await reportFailedReview(channel, failure);
+          logFailure("review", holdBack);
+          await reportFailedReview(channel, { code: holdBack.code });
         }
         return;
       }

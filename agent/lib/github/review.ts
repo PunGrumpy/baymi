@@ -22,10 +22,10 @@ export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 
 export type Severity = (typeof SEVERITIES)[number];
 
-/** One finding, anchored to a line on the pull request's head. */
+/** One finding as the model wrote it; `line` is `null` when it named only the file. */
 export interface ReviewFinding {
   readonly body: string;
-  readonly line: number;
+  readonly line: number | null;
   readonly path: string;
   readonly severity: Severity;
   readonly title: string;
@@ -44,14 +44,15 @@ const REVIEW_OPENING = /^Security review:/u;
 const FINDING_HEADING =
   /^###\s+(?<severity>Critical|High|Medium|Low)\s*(?:·|:)\s*(?<title>.+?)\s*$/u;
 
-/** `File: path/to/file.ts:42`, with or without backticks. */
-const FINDING_LOCATION = /^File:\s*`?(?<path>[^\s`]+?):(?<line>\d+)`?\s*$/u;
+/** `File: path/to/file.ts:42` or `File: path/to/file.ts`, backticks optional. */
+const FINDING_LOCATION =
+  /^File:\s*`?(?<path>[^\s`:]+?)(?::(?<line>\d+))?`?\s*$/u;
 
 interface FindingBlock {
   readonly heading: string;
   readonly lines: string[];
-  readonly line: number | null;
-  readonly path: string | null;
+  line: number | null;
+  path: string | null;
   readonly severity: Severity;
   readonly title: string;
 }
@@ -70,11 +71,9 @@ const trimBlock = (lines: readonly string[]): string => lines.join("\n").trim();
  * Splits the model's reply into the review body and its findings.
  *
  * @remarks
- * Returns `null` when the reply is not a review at all, so the caller posts
- * it as it is. A finding block without a usable `File:` line is not a
- * finding GitHub can place, so it is folded back into the body under its
- * own heading rather than dropped: the reader still sees it, only not on a
- * line.
+ * Returns `null` when the reply is not a review at all. A finding block
+ * with no `File:` line is folded back into the body under its heading
+ * rather than dropped.
  */
 export const parseReview = (message: string): ParsedReview | null => {
   const text = message.trim();
@@ -103,18 +102,19 @@ export const parseReview = (message: string): ParsedReview | null => {
       continue;
     }
     const location = FINDING_LOCATION.exec(line)?.groups;
-    if (location && current.path === null) {
+    if (location?.path && current.path === null) {
       const lineNumber = Number(location.line);
-      if (lineNumber > 0 && location.path) {
-        Object.assign(current, { line: lineNumber, path: location.path });
-        continue;
-      }
+      current.line = lineNumber > 0 ? lineNumber : null;
+      current.path = location.path;
+      continue;
     }
     current.lines.push(line);
   }
   const findings: ReviewFinding[] = [];
   for (const block of blocks) {
-    if (block.path !== null && block.line !== null) {
+    if (block.path === null) {
+      bodyLines.push("", block.heading, ...block.lines);
+    } else {
       findings.push({
         body: trimBlock(block.lines),
         line: block.line,
@@ -122,8 +122,6 @@ export const parseReview = (message: string): ParsedReview | null => {
         severity: block.severity,
         title: block.title,
       });
-    } else {
-      bodyLines.push("", block.heading, ...block.lines);
     }
   }
   return { body: trimBlock(bodyLines), findings };
@@ -131,9 +129,17 @@ export const parseReview = (message: string): ParsedReview | null => {
 
 const ID_LENGTH = 8;
 
+/** A finding on a line the diff contains; `#lib/github/anchors` makes these. */
+export type PlacedFinding = ReviewFinding & { readonly line: number };
+
+export interface AnchoredReview {
+  readonly body: string;
+  readonly findings: readonly PlacedFinding[];
+}
+
 /** A stable id for a finding, so a second look can match it to the first. */
 export const findingId = (
-  finding: Pick<ReviewFinding, "line" | "path" | "title">
+  finding: Pick<PlacedFinding, "line" | "path" | "title">
 ): string =>
   createHash("sha256")
     .update(`${finding.path}:${finding.line}:${finding.title}`)
@@ -145,7 +151,7 @@ const shaAttribute = (sha: string | null): string =>
 
 /** The hidden marker at the end of one inline comment. */
 export const findingMarker = (
-  finding: ReviewFinding,
+  finding: PlacedFinding,
   headSha: string | null
 ): string =>
   `<!-- baymi:finding id=${findingId(finding)} severity=${finding.severity}${shaAttribute(headSha)} -->`;
@@ -157,7 +163,8 @@ export const reviewMarker = (
 ): string =>
   `<!-- baymi:review findings=${findingCount}${shaAttribute(headSha)} -->`;
 
-const capitalize = (severity: Severity): string =>
+/** `high` as `High`, for the lead of a comment. */
+export const severityLabel = (severity: Severity): string =>
   `${severity[0]?.toUpperCase() ?? ""}${severity.slice(1)}`;
 
 /** One inline comment, in the shape GitHub's review API takes. */
@@ -179,13 +186,13 @@ export interface RenderedReview {
  * marker on everything.
  */
 export const renderReview = (
-  review: ParsedReview,
+  review: AnchoredReview,
   headSha: string | null
 ): RenderedReview => ({
   body: `${review.body}\n\n${reviewMarker(review.findings.length, headSha)}`.trim(),
   comments: review.findings.map((finding) => ({
     body: [
-      `**${capitalize(finding.severity)}** · ${finding.title}`,
+      `**${severityLabel(finding.severity)}** · ${finding.title}`,
       finding.body,
       findingMarker(finding, headSha),
     ]
