@@ -10,7 +10,9 @@ import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { githubCredentials } from "#lib/github/credentials";
 import {
   createGroundingLedger,
+  isReviewReply,
   mayPostReview,
+  NOT_A_REVIEW_CODE,
   UNGROUNDED_REVIEW_CODE,
 } from "#lib/github/grounding";
 import {
@@ -79,6 +81,37 @@ const reportFailedReview = async (
 
 /** GitHub pages this endpoint; the diff in context stops at 50 files anyway. */
 const DIFF_FILES_PER_PAGE = 100;
+
+/**
+ * The reason a completed message must not be posted, or `null` when it may.
+ * Two gates, in order: the turn read something, and what it wrote is a
+ * review. Both pass for a person who asked; `#lib/github/grounding`.
+ */
+const whyToHoldBack = (input: {
+  readonly grounded: boolean;
+  readonly message: string;
+  readonly step: number;
+  readonly unattended: boolean;
+}): { readonly code: string; readonly message: string } | null => {
+  if (!mayPostReview(input)) {
+    return {
+      code: UNGROUNDED_REVIEW_CODE,
+      message: "the turn answered without reading anything",
+    };
+  }
+  if (
+    !isReviewReply({
+      parsed: parseReview(input.message) !== null,
+      unattended: input.unattended,
+    })
+  ) {
+    return {
+      code: NOT_A_REVIEW_CODE,
+      message: "the turn answered with something that is not a review",
+    };
+  }
+  return null;
+};
 
 /**
  * Settles the findings against the pull request's diff, so each one sits
@@ -185,12 +218,13 @@ const postReply = async (
  *   `postReply` submits as a review when it is one and posts as a comment
  *   otherwise. The agent never calls a comment tool to answer where it
  *   already is.
- * - An unattended review is posted only if its turn ran the tool loop.
- *   `action.result` and the reply's own `stepIndex` each attest to that,
- *   and `#lib/github/grounding` explains why. A turn whose tool calls never
- *   reached the runtime has read neither the skill nor the checkout, so it
- *   must not post a verdict on the pull request. It takes the same route as
- *   a review that died: nothing on the pull request, one card in Slack.
+ * - An unattended review is posted only if its turn read something and
+ *   wrote a review. `action.result` and the reply's own `stepIndex` attest
+ *   to the reading, and `parseReview` to the writing; `#lib/github/grounding`
+ *   explains both. A turn that read nothing, or that answered with
+ *   something other than a review, must not post on the pull request. It
+ *   takes the same route as a review that died: nothing on the pull
+ *   request, one card in Slack.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
  */
@@ -205,20 +239,17 @@ export default githubChannel({
       if (event.finishReason === "tool-calls" || !event.message) {
         return;
       }
-      if (
-        !mayPostReview({
-          grounded: grounding.isGrounded(event.turnId),
-          step: event.stepIndex,
-          unattended: isUnattended(ctx.session.auth.current),
-        })
-      ) {
+      const unattended = isUnattended(ctx.session.auth.current);
+      const holdBack = whyToHoldBack({
+        grounded: grounding.isGrounded(event.turnId),
+        message: event.message,
+        step: event.stepIndex,
+        unattended,
+      });
+      if (holdBack !== null) {
         if (grounding.reportOnce(event.turnId)) {
-          const failure = { code: UNGROUNDED_REVIEW_CODE };
-          logFailure("review", {
-            ...failure,
-            message: "the turn answered without settling a single action",
-          });
-          await reportFailedReview(channel, failure);
+          logFailure("review", holdBack);
+          await reportFailedReview(channel, { code: holdBack.code });
         }
         return;
       }

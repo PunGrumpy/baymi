@@ -14,9 +14,17 @@
  * per settled tool call and per loaded skill, and a cold start loses the
  * ledger that collects them. eve's tool loop is the only thing that
  * advances `stepIndex`, which survives a channel that never receives
- * `action.result`. Neither signal looks at which tool ran. The failure
- * produces no results at all, and a rule naming a particular skill or tool
- * would break on a rename.
+ * `action.result`. Neither signal looks at which tool ran; a rule naming a
+ * particular tool would break on a rename.
+ *
+ * Loading the skill is not reading. On 2026-09-16 three reviews in a row
+ * loaded the skill, read nothing, and answered from the truncated diff,
+ * and a fourth loaded it, ran one glob, and then wrote a tool result in
+ * its own voice instead of calling the tool (`docs/notes.md`). So the
+ * ledger grounds a turn on a settled action that is not a skill load, and
+ * the step escape asks for two advanced steps: the skill and one read.
+ * Nothing here can tell a real read from a fabricated one; that is what
+ * {@link isReviewReply} is for.
  */
 
 /** One settled action, in the shape `action.result` reports it. */
@@ -24,6 +32,12 @@ export interface ActionOutcome {
   readonly isError?: boolean;
   readonly kind?: string;
 }
+
+/** eve's kind for a settled `load_skill`; the reply reads nothing through it. */
+const SKILL_LOAD_KIND = "load-skill-result";
+
+/** The skill load and one read, as `stepIndex` counts them. */
+const STEPS_BEFORE_A_GROUNDED_REPLY = 2;
 
 /** Only bounds what a warm runtime accumulates across unrelated sessions. */
 const MAX_REMEMBERED_TURNS = 32;
@@ -66,7 +80,7 @@ export const createGroundingLedger = (
       return turns.get(turnId)?.grounded === true;
     },
     note(turnId, outcome) {
-      if (outcome.isError === true) {
+      if (outcome.isError === true || outcome.kind === SKILL_LOAD_KIND) {
         return;
       }
       record(turnId).grounded = true;
@@ -84,6 +98,26 @@ export const createGroundingLedger = (
 
 export const UNGROUNDED_REVIEW_CODE = "review_ungrounded";
 
+export const NOT_A_REVIEW_CODE = "review_not_a_review";
+
+/**
+ * Whether an unattended reply is a review at all, given the parser's
+ * verdict on it.
+ *
+ * @remarks
+ * A turn can run its tools and still answer with something that is not a
+ * review: on 2026-09-16 the model wrote `Tool (read_file): […]`, the
+ * proxy's own rendering of a tool result, with file contents lifted from
+ * the diff, and stopped. Nobody reads an unattended reply before the
+ * author does, so a reply that does not parse goes the way of a review
+ * that died: nothing on the pull request, one card in Slack. A person who
+ * asked still gets whatever the turn wrote.
+ */
+export const isReviewReply = (input: {
+  readonly parsed: boolean;
+  readonly unattended: boolean;
+}): boolean => input.parsed || !input.unattended;
+
 /**
  * Whether this reply may be posted on the pull request.
  *
@@ -97,4 +131,7 @@ export const mayPostReview = (input: {
   /** `stepIndex` of the completed message, which the tool loop advances. */
   readonly step: number;
   readonly unattended: boolean;
-}): boolean => input.grounded || input.step > 0 || !input.unattended;
+}): boolean =>
+  input.grounded ||
+  input.step >= STEPS_BEFORE_A_GROUNDED_REPLY ||
+  !input.unattended;
