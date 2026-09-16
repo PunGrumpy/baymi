@@ -66,7 +66,7 @@ describe(placeLine, () => {
 
 const REVIEW = `Security review: 3 findings (1 high, 2 low).
 
-Checked and clean: the outbound validator bounds every coordinate.
+Checked and clean: a paragraph the skill forbids and the channel drops.
 
 ### High · a location message accepts any latitude
 File: src/message.ts
@@ -97,7 +97,9 @@ describe(anchorReview, () => {
       severity: "high",
     });
     expect(
-      anchored.body.startsWith("Security review: 3 findings")
+      anchored.body.startsWith(
+        "Security review: 3 findings (1 high, 2 low).\n\n**Low**"
+      )
     ).toBeTruthy();
     expect(anchored.body).toContain(
       "**Low** · the excluded lockfile (`bun.lockb:1`)"

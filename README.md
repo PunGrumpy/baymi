@@ -26,7 +26,6 @@ src/routes/admin.ts:12                                          Unresolved
 
 baymiai reviewed
   Security review: 1 finding (1 high).
-  Checked and clean: the listUsers change only adds a column to the select.
 ```
 
 Baymi never changes your code and never runs it. It has no shell, no file writes, and no outbound fetch. You decide what to do with what it finds.

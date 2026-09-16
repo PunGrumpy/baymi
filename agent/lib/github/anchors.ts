@@ -142,9 +142,19 @@ export const unplacedFinding = (finding: ReviewFinding): string => {
     .join("\n\n");
 };
 
+/** The count line, which is all of the model's body that is posted. */
+const headline = (body: string): string => body.split("\n")[0]?.trim() ?? "";
+
 /**
- * Settles every finding against the diff. Findings that cannot be placed
- * are appended to the body in order, after whatever the model wrote there.
+ * Settles every finding against the diff, and cuts the body to its first
+ * line.
+ *
+ * @remarks
+ * The review is the inline comments; the body is the one line that counts
+ * them, the way Vercel Agent posts (`docs/notes.md`). Whatever else the
+ * model wrote above the first finding is not posted, so a summary that
+ * slips past the skill still does not reach the pull request. Findings
+ * that cannot be placed follow the count line, in order.
  */
 export const anchorReview = (
   review: ParsedReview,
@@ -163,7 +173,7 @@ export const anchorReview = (
     }
   }
   return {
-    body: [review.body, ...unplaced].join("\n\n").trim(),
+    body: [headline(review.body), ...unplaced].join("\n\n").trim(),
     findings: placed,
   };
 };
