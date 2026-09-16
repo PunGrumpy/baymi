@@ -63,9 +63,10 @@ Rules for the shape:
 
 - The first line is always `Security review:` followed by the count, or `Security review: nothing to raise.`
 - A finding heading is `### <Severity> · <title>`, with the severity as Critical, High, Medium, or Low, and a title of one short clause that says what an attacker gets.
-- The line after the heading is `File: path:line`. The line number must be a line in the diff on the head commit, on the added or unchanged side. A finding on a line outside the diff cannot be placed and falls back into the body, so point at the changed line that makes the problem real.
+- The line after the heading is `File: path:line`, or `File: path` when you are not sure of the line. The path is the file's path in the repository. The line counts on the head commit, on the added or unchanged side of the diff; the channel checks it against the diff and moves it to the nearest changed line when it is off, so a rough line beats none, and none beats a line in a file the change does not touch.
+- If, while writing the reasoning, you find yourself saying that an attacker gains nothing, or that the concern is code quality, it is not a finding. Delete the block; do not soften it to Low.
 - Keep the visible part of a finding to the title and one sentence. Put the reasoning (why the code allows it, what an attacker does, what closes it) inside `<details>` so the comment scans in a glance and expands on demand.
-- Add a `suggestion` block only when the fix fits in the lines you are anchored to and you are sure of it. Follow it with the unverified line, always. Never suggest a change you have not read the surrounding code for.
+- Add a `suggestion` block only when the fix fits in the lines you are anchored to and you are sure of it. Follow it with the unverified line, always. Never suggest a change you have not read the surrounding code for. When there is no suggestion, write nothing about it.
 - Order findings by severity, highest first.
 
 A clean review is body only:

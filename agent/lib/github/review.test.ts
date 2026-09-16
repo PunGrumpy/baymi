@@ -8,6 +8,18 @@ import {
   reviewMarker,
   splitComment,
 } from "#lib/github/review";
+import type { AnchoredReview, ParsedReview } from "#lib/github/review";
+
+/** The fixture names a line on every finding, so anchoring is a type change. */
+const asAnchored = (review: ParsedReview): AnchoredReview => ({
+  body: review.body,
+  findings: review.findings.map((finding) => {
+    if (finding.line === null) {
+      throw new Error(`fixture finding on ${finding.path} has no line`);
+    }
+    return { ...finding, line: finding.line };
+  }),
+});
 
 const REVIEW = `Security review: 2 findings (1 high, 1 low).
 
@@ -62,13 +74,29 @@ describe(parseReview, () => {
     });
   });
 
-  it("folds a finding it cannot place back into the body", () => {
+  it("folds a finding with no file back into the body", () => {
     const review = parseReview(
       "Security review: 1 finding (1 medium).\n\n### Medium · CORS opened to a wildcard\nThe middleware now reflects any origin."
     );
     expect(review?.findings).toHaveLength(0);
     expect(review?.body).toContain("### Medium · CORS opened to a wildcard");
     expect(review?.body).toContain("The middleware now reflects any origin.");
+  });
+
+  it("keeps a finding that names a file but no line, for the anchors to place", () => {
+    const review = parseReview(
+      "Security review: 1 finding (1 low).\n\n### Low · a property on every message\nFile: src/message.ts\n\nThe reasoning."
+    );
+    expect(review?.findings).toStrictEqual([
+      {
+        body: "The reasoning.",
+        line: null,
+        path: "src/message.ts",
+        severity: "low",
+        title: "a property on every message",
+      },
+    ]);
+    expect(review?.body).toBe("Security review: 1 finding (1 low).");
   });
 
   it("parses a clean review as a body with no findings", () => {
@@ -95,11 +123,12 @@ describe(renderReview, () => {
     if (review === null) {
       throw new Error("fixture did not parse");
     }
-    const rendered = renderReview(review, "72eadbc");
+    const anchored = asAnchored(review);
+    const rendered = renderReview(anchored, "72eadbc");
     expect(rendered.body.endsWith(reviewMarker(2, "72eadbc"))).toBeTruthy();
     expect(rendered.body).toContain("findings=2 sha=72eadbc");
     const [high] = rendered.comments;
-    const [first] = review.findings;
+    const [first] = anchored.findings;
     if (first === undefined) {
       throw new Error("fixture has no finding");
     }

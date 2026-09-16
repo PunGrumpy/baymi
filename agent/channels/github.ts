@@ -4,6 +4,8 @@ import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
+import { anchorReview } from "#lib/github/anchors";
+import type { DiffFile } from "#lib/github/anchors";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { githubCredentials } from "#lib/github/credentials";
 import {
@@ -17,6 +19,7 @@ import {
   shouldReviewPullRequest,
 } from "#lib/github/pull-requests";
 import { parseReview, renderReview, splitComment } from "#lib/github/review";
+import type { AnchoredReview } from "#lib/github/review";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
 import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
 
@@ -74,6 +77,37 @@ const reportFailedReview = async (
   }
 };
 
+/** GitHub pages this endpoint; the diff in context stops at 50 files anyway. */
+const DIFF_FILES_PER_PAGE = 100;
+
+/**
+ * Settles the findings against the pull request's diff, so each one sits
+ * on a line GitHub will take. When the diff cannot be read, every finding
+ * that names a line is trusted as written and the rest go into the body.
+ */
+const anchorAgainstDiff = async (
+  channel: GitHubEventContext,
+  review: NonNullable<ReturnType<typeof parseReview>>,
+  pullRequestNumber: number
+): Promise<AnchoredReview> => {
+  const { owner, repo } = channel.state;
+  try {
+    const { body } = await channel.github.request<readonly DiffFile[]>({
+      method: "GET",
+      path: `/repos/${owner}/${repo}/pulls/${pullRequestNumber}/files?per_page=${DIFF_FILES_PER_PAGE}`,
+    });
+    return anchorReview(review, body);
+  } catch (error) {
+    logFailure("review", { message: `diff not read: ${String(error)}` });
+    return {
+      body: review.body,
+      findings: review.findings.flatMap((finding) =>
+        finding.line === null ? [] : [{ ...finding, line: finding.line }]
+      ),
+    };
+  }
+};
+
 /**
  * Posts the turn's reply: as a GitHub review with inline comments when the
  * reply is one, as a timeline comment otherwise.
@@ -83,16 +117,22 @@ const reportFailedReview = async (
  * reply that parses as a review becomes one `POST /pulls/{number}/reviews`
  * with a fixed `event: COMMENT`, so the verdict never comes from the model.
  *
- * GitHub answers 422 when a line is not part of the diff, and one badly
- * placed finding must not lose the whole review, so any failure falls back
- * to an ordinary comment.
+ * The findings are anchored against the diff first (`#lib/github/anchors`),
+ * because the model computes line numbers by hand from hunk headers and a
+ * wrong one would fail the whole review. GitHub still answers 422 for a
+ * line it will not take, and one badly placed finding must not lose the
+ * review, so any failure falls back to an ordinary comment.
  */
 const postReply = async (
   channel: GitHubEventContext,
   message: string
 ): Promise<void> => {
   const { headSha, owner, pullRequestNumber, repo } = channel.state;
-  const review = pullRequestNumber === null ? null : parseReview(message);
+  const parsed = pullRequestNumber === null ? null : parseReview(message);
+  const review =
+    parsed === null || pullRequestNumber === null
+      ? null
+      : await anchorAgainstDiff(channel, parsed, pullRequestNumber);
   if (review !== null && review.findings.length > 0) {
     const rendered = renderReview(review, headSha);
     const body: GitHubJsonObject =

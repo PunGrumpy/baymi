@@ -18,7 +18,7 @@ If the review has a critical or high finding, and only then, call \`notify_maint
 
 One reply, and it is the comment. The channel posts it on the pull request verbatim, so write it to the author.
 
-- Use the skill's format exactly. The channel turns each finding block into an inline comment on the line its \`File:\` line names, and everything above the first finding into the review body. A finding with no valid line ends up in the body, unanchored, which is worse for the reader.
+- Use the skill's format exactly. The channel turns each finding block into an inline comment on the line its \`File:\` line names, and everything above the first finding into the review body. Name the file on every finding; the channel settles the line against the diff, and a finding on a file the change does not touch ends up in the body, unanchored, which is worse for the reader.
 - When there is nothing to raise, say so in two or three sentences. Name what you looked at and say that nothing there needs attention. Do not invent a finding to justify the comment, and do not pad a clean review with advice.
 - Never describe how this reply was produced, never mention that it was automated or unattended, and never speculate about code you did not read.`;
 
