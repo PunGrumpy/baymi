@@ -12,12 +12,13 @@ const human = { login: "sam", type: "User" };
 
 type Raw = GitHubPullRequestEvent["raw"];
 
+/** `raw` is the pull request itself, the way eve hands it to the handler. */
 const event = (
   action: string,
   draft?: boolean
 ): Pick<GitHubPullRequestEvent, "action" | "raw"> => {
-  const pullRequest: Raw = draft === undefined ? {} : { draft };
-  return { action, raw: { pull_request: pullRequest } };
+  const raw: Raw = draft === undefined ? { number: 7 } : { draft, number: 7 };
+  return { action, raw };
 };
 
 const auth = (
