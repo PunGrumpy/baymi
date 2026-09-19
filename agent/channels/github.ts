@@ -1,5 +1,10 @@
 import { getToken } from "@vercel/connect";
-import type { GitHubEventContext, GitHubJsonObject } from "eve/channels/github";
+import type {
+  GitHubChannelState,
+  GitHubEventContext,
+  GitHubHandle,
+  GitHubJsonObject,
+} from "eve/channels/github";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
@@ -44,26 +49,23 @@ const grounding = createGroundingLedger();
  * it: the permission can be withheld, and a review that posted is worth more
  * than the row that describes it.
  */
-const announce = async (result: Promise<CheckResult>): Promise<void> => {
-  const settled = await result;
-  if (!settled.ok) {
-    logFailure("review", { message: settled.error });
+const announce = (result: CheckResult): void => {
+  if (!result.ok) {
+    logFailure("review", { message: result.error });
   }
 };
 
 /** The head commit a check run hangs on, or `null` when there is none to use. */
-const checkTarget = (state: {
-  readonly headSha: string | null;
-  readonly owner: string;
-  readonly repo: string;
-}): CheckTarget | null =>
+const checkTarget = (
+  state: Pick<GitHubChannelState, "headSha" | "owner" | "repo">
+): CheckTarget | null =>
   state.headSha === null
     ? null
     : { headSha: state.headSha, owner: state.owner, repo: state.repo };
 
 /** eve's handle as the one call `#lib/github/checks` asks for. */
 const asRequest =
-  (github: { readonly request: GitHubRequest }): GitHubRequest =>
+  (github: GitHubHandle): GitHubRequest =>
   (input) =>
     github.request(input);
 
@@ -76,7 +78,13 @@ const settleCheck = async (
   if (target === null) {
     return;
   }
-  await announce(settleCheckRun(asRequest(channel.github), target, outcome));
+  announce(
+    await settleCheckRun({
+      outcome,
+      request: asRequest(channel.github),
+      target,
+    })
+  );
 };
 
 /**
@@ -334,11 +342,14 @@ export default githubChannel({
       return null;
     }
     if (pullRequest.headSha !== null) {
-      await announce(
-        openCheckRun(asRequest(ctx.github), {
-          headSha: pullRequest.headSha,
-          owner: ctx.repository.owner,
-          repo: ctx.repository.name,
+      announce(
+        await openCheckRun({
+          request: asRequest(ctx.github),
+          target: {
+            headSha: pullRequest.headSha,
+            owner: ctx.repository.owner,
+            repo: ctx.repository.name,
+          },
         })
       );
     }

@@ -101,7 +101,7 @@ describe(failedOutcome, () => {
 describe(openCheckRun, () => {
   it("opens the run in progress on the head commit", async () => {
     const request = vi.fn<GitHubRequest>().mockResolvedValue({ body: {} });
-    const result = await openCheckRun(request, target, now);
+    const result = await openCheckRun({ now, request, target });
     expect(result).toStrictEqual({ ok: true });
     expect(request).toHaveBeenCalledWith({
       body: {
@@ -120,7 +120,7 @@ describe(openCheckRun, () => {
     const request = vi
       .fn<GitHubRequest>()
       .mockRejectedValue(new Error("403 Resource not accessible"));
-    const result = await openCheckRun(request, target, now);
+    const result = await openCheckRun({ now, request, target });
     expect(result.ok).toBeFalsy();
     expect(result.ok === false && result.error).toContain("403");
   });
@@ -138,7 +138,7 @@ describe(settleCheckRun, () => {
       .fn<GitHubRequest>()
       .mockResolvedValueOnce({ body: { check_runs: [{ id: 99 }] } })
       .mockResolvedValueOnce({ body: {} });
-    const result = await settleCheckRun(request, target, outcome, now);
+    const result = await settleCheckRun({ now, outcome, request, target });
     expect(result).toStrictEqual({ ok: true });
     const [lookup] = request.mock.calls[0] ?? [];
     expect(lookup?.path).toContain("/commits/abc123/check-runs?check_name=");
@@ -158,7 +158,7 @@ describe(settleCheckRun, () => {
     const request = vi
       .fn<GitHubRequest>()
       .mockResolvedValue({ body: { check_runs: [] } });
-    const result = await settleCheckRun(request, target, outcome, now);
+    const result = await settleCheckRun({ now, outcome, request, target });
     expect(result.ok).toBeFalsy();
     expect(request).toHaveBeenCalledOnce();
   });
@@ -168,7 +168,7 @@ describe(settleCheckRun, () => {
       .fn<GitHubRequest>()
       .mockResolvedValueOnce({ body: { check_runs: [{ id: 99 }] } })
       .mockRejectedValueOnce(new Error("422 Unprocessable"));
-    const result = await settleCheckRun(request, target, outcome, now);
+    const result = await settleCheckRun({ now, outcome, request, target });
     expect(result.ok).toBeFalsy();
     expect(result.ok === false && result.error).toContain("422");
   });

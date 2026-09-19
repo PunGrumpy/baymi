@@ -1,7 +1,7 @@
 import type { GitHubJsonObject } from "eve/channels/github";
 import { z } from "zod";
 
-import type { ParsedReview, Severity } from "#lib/github/review";
+import type { ParsedReview, ReviewFinding } from "#lib/github/review";
 import { SEVERITIES, severityLabel } from "#lib/github/review";
 
 /**
@@ -60,7 +60,7 @@ const findingCount = (count: number): string =>
 
 /** `1 critical, 2 high`, in the order the severity scale runs. */
 const severityBreakdown = (
-  findings: readonly { severity: Severity }[]
+  findings: readonly Pick<ReviewFinding, "severity">[]
 ): string =>
   SEVERITIES.flatMap((severity) => {
     const count = findings.filter(
@@ -113,24 +113,27 @@ export const reviewOutcome = (review: ParsedReview): CheckOutcome => {
  * malfunctioning rather than the change being at fault. It is also the only
  * notice the author gets: the Slack card goes to the maintainer.
  */
-export const failedOutcome = (code?: string): CheckOutcome => ({
-  conclusion: "failure",
-  summary: [
+export const failedOutcome = (code?: string): CheckOutcome => {
+  const lines = [
     "Nothing was posted on this pull request, so treat it as unreviewed rather than clean.",
-    "",
-    code === undefined ? "" : `Error code: \`${code}\``,
-  ]
-    .join("\n")
-    .trim(),
-  title: "The review did not run",
-});
+  ];
+  if (code !== undefined) {
+    lines.push("", `Error code: \`${code}\``);
+  }
+  return {
+    conclusion: "failure",
+    summary: lines.join("\n"),
+    title: "The review did not run",
+  };
+};
 
 /** Opens the row as `in_progress`, before the first model call. */
-export const openCheckRun = async (
-  request: GitHubRequest,
-  target: CheckTarget,
-  now: Date = new Date()
-): Promise<CheckResult> => {
+export const openCheckRun = async (input: {
+  readonly now?: Date;
+  readonly request: GitHubRequest;
+  readonly target: CheckTarget;
+}): Promise<CheckResult> => {
+  const { now = new Date(), request, target } = input;
   try {
     await request({
       body: {
@@ -161,12 +164,13 @@ export const openCheckRun = async (
  * events can land in different invocations, so a value held in this runtime
  * would be gone exactly when the review took long enough to need it.
  */
-export const settleCheckRun = async (
-  request: GitHubRequest,
-  target: CheckTarget,
-  outcome: CheckOutcome,
-  now: Date = new Date()
-): Promise<CheckResult> => {
+export const settleCheckRun = async (input: {
+  readonly now?: Date;
+  readonly outcome: CheckOutcome;
+  readonly request: GitHubRequest;
+  readonly target: CheckTarget;
+}): Promise<CheckResult> => {
+  const { now = new Date(), outcome, request, target } = input;
   try {
     const { body } = await request({
       method: "GET",
