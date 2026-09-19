@@ -9,8 +9,15 @@ const DAYS_MS = 24 * 60 * 60 * 1000;
  */
 const KEPT_SNAPSHOTS = 1;
 
-/** A session's snapshot outlives its last use by this long. */
-const SESSION_SNAPSHOT_TTL_MS = 7 * DAYS_MS;
+/**
+ * A session's snapshot outlives its last use by this long, and it is the only
+ * bound on how much snapshot storage the project holds. A review takes
+ * minutes and a mention on it arrives the same day, so nothing reads one
+ * older than that; at seven days the project carried a week of reviews at
+ * once, about 150 MB each, and ran the plan out of snapshot storage on
+ * 2026-09-20. That fails the build, not a turn.
+ */
+const SESSION_SNAPSHOT_TTL_MS = DAYS_MS;
 
 /**
  * The template's, longer, because losing it breaks the agent rather than one
@@ -30,8 +37,10 @@ const TEMPLATE_SNAPSHOT_TTL_MS = 30 * DAYS_MS;
  * user owns; eve swallows that failure, so without the `safe.directory`
  * entry a review would run against an empty tree and find nothing.
  *
- * `keepLastSnapshots` is what stops the snapshot count from growing: Vercel
- * prunes nothing by default, and each one is the size of the template.
+ * `keepLastSnapshots` bounds what one sandbox keeps, not what the project
+ * holds: every session creates its own sandbox, so the total grows by one
+ * snapshot per review however low the count is. `snapshotExpiration` is what
+ * bounds the total.
  */
 export default defineSandbox({
   backend: vercel({
