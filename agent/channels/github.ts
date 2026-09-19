@@ -44,18 +44,13 @@ import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
 /** Which turns of this runtime settled an action; see `#lib/github/grounding`. */
 const grounding = createGroundingLedger();
 
-/**
- * The check row's verdict, or its absence, must never take the review with
- * it: the permission can be withheld, and a review that posted is worth more
- * than the row that describes it.
- */
+/** A refused row must never take the review with it; the permission can go away. */
 const announce = (result: CheckResult): void => {
   if (!result.ok) {
     logFailure("review", { message: result.error });
   }
 };
 
-/** The head commit a check run hangs on, or `null` when there is none to use. */
 const checkTarget = (
   state: Pick<GitHubChannelState, "headSha" | "owner" | "repo">
 ): CheckTarget | null =>
@@ -63,13 +58,12 @@ const checkTarget = (
     ? null
     : { headSha: state.headSha, owner: state.owner, repo: state.repo };
 
-/** eve's handle as the one call `#lib/github/checks` asks for. */
 const asRequest =
   (github: GitHubHandle): GitHubRequest =>
   (input) =>
     github.request(input);
 
-/** Settles the row for an unattended review; attended turns have no row. */
+/** Only an unattended review reaches here: nothing else opened a row. */
 const settleCheck = async (
   channel: GitHubEventContext,
   outcome: CheckOutcome
