@@ -1,10 +1,27 @@
 import { getToken } from "@vercel/connect";
-import type { GitHubEventContext, GitHubJsonObject } from "eve/channels/github";
+import type {
+  GitHubChannelState,
+  GitHubEventContext,
+  GitHubHandle,
+  GitHubJsonObject,
+} from "eve/channels/github";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
 import { anchorReview, DIFF_FILES } from "#lib/github/anchors";
+import type {
+  CheckOutcome,
+  CheckResult,
+  CheckTarget,
+  GitHubRequest,
+} from "#lib/github/checks";
+import {
+  failedOutcome,
+  openCheckRun,
+  reviewOutcome,
+  settleCheckRun,
+} from "#lib/github/checks";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { githubCredentials } from "#lib/github/credentials";
 import {
@@ -26,6 +43,43 @@ import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
 
 /** Which turns of this runtime settled an action; see `#lib/github/grounding`. */
 const grounding = createGroundingLedger();
+
+/** A refused row must never take the review with it; the permission can go away. */
+const announce = (result: CheckResult): void => {
+  if (!result.ok) {
+    logFailure("review", { message: result.error });
+  }
+};
+
+const checkTarget = (
+  state: Pick<GitHubChannelState, "headSha" | "owner" | "repo">
+): CheckTarget | null =>
+  state.headSha === null
+    ? null
+    : { headSha: state.headSha, owner: state.owner, repo: state.repo };
+
+const asRequest =
+  (github: GitHubHandle): GitHubRequest =>
+  (input) =>
+    github.request(input);
+
+/** Only an unattended review reaches here: nothing else opened a row. */
+const settleCheck = async (
+  channel: GitHubEventContext,
+  outcome: CheckOutcome
+): Promise<void> => {
+  const target = checkTarget(channel.state);
+  if (target === null) {
+    return;
+  }
+  announce(
+    await settleCheckRun({
+      outcome,
+      request: asRequest(channel.github),
+      target,
+    })
+  );
+};
 
 /**
  * Tells the maintainer on Slack that a review died, and posts nothing on the
@@ -84,7 +138,7 @@ const DIFF_FILES_PER_PAGE = 100;
 /** Why a completed message must not be posted, or `null` when it may. */
 const whyToHoldBack = (input: {
   readonly grounded: boolean;
-  readonly message: string;
+  readonly parsed: boolean;
   readonly step: number;
   readonly unattended: boolean;
 }): { readonly code: string; readonly message: string } | null => {
@@ -94,12 +148,7 @@ const whyToHoldBack = (input: {
       message: "the turn answered without reading anything",
     };
   }
-  if (
-    !isReviewReply({
-      parsed: parseReview(input.message) !== null,
-      unattended: input.unattended,
-    })
-  ) {
+  if (!isReviewReply({ parsed: input.parsed, unattended: input.unattended })) {
     return {
       code: NOT_A_REVIEW_CODE,
       message: "the turn answered with something that is not a review",
@@ -147,10 +196,10 @@ const anchorAgainstDiff = async (
  */
 const postReply = async (
   channel: GitHubEventContext,
-  message: string
+  message: string,
+  parsed: ParsedReview | null
 ): Promise<void> => {
   const { headSha, owner, pullRequestNumber, repo } = channel.state;
-  const parsed = pullRequestNumber === null ? null : parseReview(message);
   const review =
     parsed === null || pullRequestNumber === null
       ? null
@@ -210,6 +259,11 @@ const postReply = async (
  * - An unattended review is posted only if its turn read something and
  *   wrote a review (`#lib/github/grounding`). Otherwise it takes the route
  *   of a review that died: nothing on the pull request, one card in Slack.
+ * - A check run opens on the head commit at dispatch and settles when the
+ *   review does, so the pull request says a review is running, and says so
+ *   when one never arrived. It is opened here rather than from a
+ *   `turn.started` handler, which would replace the built-in that checks the
+ *   repository out. The row never gates: findings settle `neutral`.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
  */
@@ -225,24 +279,30 @@ export default githubChannel({
         return;
       }
       const unattended = isUnattended(ctx.session.auth.current);
+      const parsed = parseReview(event.message);
       const holdBack = whyToHoldBack({
         grounded: grounding.isGrounded(event.turnId),
-        message: event.message,
+        parsed: parsed !== null,
         step: event.stepIndex,
         unattended,
       });
       if (holdBack !== null) {
         if (grounding.reportOnce(event.turnId)) {
           logFailure("review", holdBack);
+          await settleCheck(channel, failedOutcome(holdBack.code));
           await reportFailedReview(channel, { code: holdBack.code });
         }
         return;
       }
-      await postReply(channel, event.message);
+      await postReply(channel, event.message, parsed);
+      if (unattended && parsed !== null) {
+        await settleCheck(channel, reviewOutcome(parsed));
+      }
     },
     async "session.failed"(event, channel) {
       logFailure("session", event);
       if (isUnattendedReviewState(channel.state)) {
+        await settleCheck(channel, failedOutcome(event.code));
         await reportFailedReview(channel, event);
         return;
       }
@@ -271,15 +331,29 @@ export default githubChannel({
   },
   onComment: (ctx, comment) =>
     shouldDispatchComment(comment) ? { auth: defaultGitHubAuth(ctx) } : null,
-  onPullRequest: (ctx, pullRequest) =>
-    shouldReviewPullRequest(pullRequest, ctx.sender, BOT_NAME)
-      ? {
-          auth: {
-            ...defaultGitHubAuth(ctx),
-            principalId: REVIEWER_PRINCIPAL,
-            principalType: "service",
+  async onPullRequest(ctx, pullRequest) {
+    if (!shouldReviewPullRequest(pullRequest, ctx.sender, BOT_NAME)) {
+      return null;
+    }
+    if (pullRequest.headSha !== null) {
+      announce(
+        await openCheckRun({
+          request: asRequest(ctx.github),
+          target: {
+            headSha: pullRequest.headSha,
+            owner: ctx.repository.owner,
+            repo: ctx.repository.name,
           },
-          title: `Security review: ${ctx.repository.fullName}#${pullRequest.pullRequestNumber}`,
-        }
-      : null,
+        })
+      );
+    }
+    return {
+      auth: {
+        ...defaultGitHubAuth(ctx),
+        principalId: REVIEWER_PRINCIPAL,
+        principalType: "service",
+      },
+      title: `Security review: ${ctx.repository.fullName}#${pullRequest.pullRequestNumber}`,
+    };
+  },
 });
