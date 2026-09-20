@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const VALID_ENV = {
   ANTHROPIC_API_KEY: "test-token",
   ANTHROPIC_BASE_URL: "https://api.anthropic.com/v1",
-  EVAL_MODEL: "test-eval-model",
   GITHUB_CONNECTOR: "github/baymi",
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   MODEL: "test-model",

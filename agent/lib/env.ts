@@ -47,7 +47,6 @@ export const env = createEnv({
   server: {
     ANTHROPIC_API_KEY: z.string(),
     ANTHROPIC_BASE_URL: z.url(),
-    EVAL_MODEL: z.string(),
     GITHUB_CONNECTOR: connectorUid("github"),
     GITHUB_WEBHOOK_SECRET: z.string(),
     MODEL: z.string(),
