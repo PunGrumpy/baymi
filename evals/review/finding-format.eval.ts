@@ -20,15 +20,13 @@ export default defineEval({
     "Loads the review skill and writes a finding with a file, a line, the attacker's move, and a fix.",
   tags: ["fast"],
   async test(t) {
-    await t.send(DIFF);
+    const turn = await t.send(DIFF);
     t.succeeded();
     t.loadedSkill("security-review");
-    t.check(t.reply, includes(/security review/iu));
-    t.check(t.reply, includes(/admin\.ts/u));
-    t.judge.autoevals
-      .closedQA(
-        "The response reports that the new POST route lacks the requireAdmin middleware its sibling route has, so any caller can change any user's role, and rates it high or critical. It names the file, says what an attacker does, why the code allows it, and what closes it. It does not comment on style."
-      )
-      .atLeast(0.7);
+    t.check(turn.message, includes(/security review/iu));
+    t.check(turn.message, includes(/admin\.ts/u));
+    t.judge(
+      "The response reports that the new POST route lacks the requireAdmin middleware its sibling route has, so any caller can change any user's role, and rates it high or critical. It names the file, says what an attacker does, why the code allows it, and what closes it. It does not comment on style."
+    ).atLeast(0.7);
   },
 });

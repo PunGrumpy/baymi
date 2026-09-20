@@ -40,6 +40,10 @@ Things that cost time to find out. Each one is why some line of this agent, or o
 
 **The CLI runs on Node, not on Bun, and refuses anything below 24.** Invoking it through `bun run` does not change that, so CI needs `actions/setup-node` alongside `setup-bun`.
 
+**eve 0.62 needs `ai` >= 7.0.105, and an `overrides` floor can hold it below that (2026-09-19).** `ai` is a peer dependency, so nothing fails at install: discovery dies later with `The requested module 'ai' does not provide an export named 'experimental_evaluate'`, blamed on whichever authored module loaded first, which here was the GitHub extension's tool file rather than anything at fault. `package.json` carried `overrides.ai: "^7.0.38"`, and `bun add ai@latest` kept resolving 7.0.97 under it while npm had 7.0.107. Raising the override to `^7.0.105` and deleting `bun.lock` fixed it. Read the peer range off `node_modules/eve/package.json`, not the changelog.
+
+**eve 0.63.0 does not mount `@github-tools/eve-extension` 0.7.2 (2026-09-19).** `eve info` fails with `Selected module binding "extensions/github.ts" has no compile or runtime usage`, from the compiler's module-lifecycle check: the mount is discovered but neither compile-loaded nor reachable as a runtime entry. The extension was published 2026-09-19 10:44 and eve 0.63.0 at 16:38 the same day, so it predates the release. 0.62.0 mounts it and validates with no diagnostics, and 0.62.0 is where the autoevals removal landed, so it is the version to sit on until the extension ships against 0.63.
+
 **eve does not load `.env` during discovery.** `eve info` and `eve build` read the process environment only; the README shows the `env $(...)` form. `vercel env pull` writes `GITHUB_WEBHOOK_SECRET` to `.env.local`, so a discovery run needs both files.
 
 ## GitHub

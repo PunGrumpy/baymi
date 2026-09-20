@@ -20,11 +20,11 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.52",
-    "@github-tools/eve-extension": "^0.7.1",
+    "@github-tools/eve-extension": "0.7.2",
     "@t3-oss/env-core": "^0.13.11",
     "@vercel/connect": "2.0.4",
-    "ai": "^7.0.97",
-    "eve": "^0.53.1",
+    "ai": "7.0.107",
+    "eve": "0.62.0",
     "evlog": "^2.29.0",
     "zod": "4.6.2"
   },
@@ -40,7 +40,7 @@
     "vitest": "^5.0.0"
   },
   "overrides": {
-    "ai": "^7.0.38"
+    "ai": "^7.0.105"
   },
   "engines": {
     "node": ">=24"
