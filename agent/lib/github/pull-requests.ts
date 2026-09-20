@@ -20,10 +20,16 @@ const REVIEWED_ACTIONS: ReadonlySet<string> = new Set([
   "ready_for_review",
 ]);
 
-/** The one field of the raw `pull_request` payload the dispatch reads. */
-const RAW_PULL_REQUEST = z.looseObject({
-  pull_request: z.looseObject({ draft: z.boolean().optional() }).optional(),
-});
+/**
+ * The one field of the raw payload the dispatch reads.
+ *
+ * @remarks
+ * `raw` is the webhook's `pull_request` object, not the envelope around it:
+ * eve hands the handler `event.pullRequest`, whose `raw` it built from
+ * `payload.pull_request`. Reading `raw.pull_request.draft` finds nothing and
+ * reviews every draft.
+ */
+const RAW_PULL_REQUEST = z.looseObject({ draft: z.boolean().optional() });
 
 /**
  * Whether a pull request event should start an unattended security review.
@@ -47,7 +53,7 @@ export const shouldReviewPullRequest = (
     return false;
   }
   const raw = RAW_PULL_REQUEST.safeParse(pullRequest.raw);
-  return !(raw.success && raw.data.pull_request?.draft === true);
+  return !(raw.success && raw.data.draft === true);
 };
 
 /**
