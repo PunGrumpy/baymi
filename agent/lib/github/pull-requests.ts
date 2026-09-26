@@ -8,16 +8,16 @@ import { isBotLogin } from "#lib/github/comments";
  * The pull request actions that start an unattended review.
  *
  * @remarks
- * `opened` for a pull request that arrives ready, and `ready_for_review` for
- * one that arrives as a draft and is later marked ready. `synchronize` is
- * out on purpose: a review on every push is a review on every typo fix, and
- * the maintainer can ask for another look by mentioning the agent. Drafts
- * are skipped for the same reason, since the author has said the work is
- * not ready to be read.
+ * `opened` for a pull request that arrives ready, `ready_for_review` for one
+ * that arrives as a draft and is later marked ready, and `synchronize` for
+ * every push after that, so the review follows the pull request rather than
+ * describing a head that is gone. Drafts are skipped, pushes to one
+ * included, since the author has said the work is not ready to be read.
  */
 const REVIEWED_ACTIONS: ReadonlySet<string> = new Set([
   "opened",
   "ready_for_review",
+  "synchronize",
 ]);
 
 /**
@@ -54,6 +54,30 @@ export const shouldReviewPullRequest = (
   }
   const raw = RAW_PULL_REQUEST.safeParse(pullRequest.raw);
   return !(raw.success && raw.data.draft === true);
+};
+
+/**
+ * What the model is told on a review that follows a push, or nothing on the
+ * first one.
+ *
+ * @remarks
+ * The session is the one the first review ran in, so the earlier review is
+ * in its history, but compaction can take it out. The review fragment says
+ * what to do on a follow-up; this says that the turn is one.
+ */
+export const followUpContext = (
+  pullRequest: Pick<GitHubPullRequestEvent, "action" | "headSha">
+): readonly string[] | undefined => {
+  if (pullRequest.action !== "synchronize") {
+    return undefined;
+  }
+  const head =
+    pullRequest.headSha === null
+      ? ""
+      : ` The head is now ${pullRequest.headSha}.`;
+  return [
+    `New commits were pushed to this pull request, and this is a follow-up review.${head}`,
+  ];
 };
 
 /**
