@@ -32,6 +32,7 @@ import {
   UNGROUNDED_REVIEW_CODE,
 } from "#lib/github/grounding";
 import {
+  followUpContext,
   isUnattendedReviewState,
   pullRequestUrl,
   shouldReviewPullRequest,
@@ -238,11 +239,12 @@ const postReply = async (
 
 /**
  * GitHub channel: a security review of every pull request opened on a
- * repository the App is installed on, and answers to `@baymiai` mentions
- * from people the repository trusts.
+ * repository the App is installed on, again on every push to it, and
+ * answers to `@baymiai` mentions from people the repository trusts.
  *
  * @remarks
- * - `onPullRequest` starts the unattended review. The session runs under the
+ * - `onPullRequest` starts the unattended review, and a follow-up on every
+ *   push, in the same session as the first. The session runs under the
  *   constructed reviewer principal rather than as the author, so every gate
  *   in `agent/lib/` can recognize it: writes are refused, memory is off, and
  *   the reply is the only output it may produce. The diff arrives in context
@@ -353,6 +355,7 @@ export default githubChannel({
         principalId: REVIEWER_PRINCIPAL,
         principalType: "service",
       },
+      context: followUpContext(pullRequest),
       title: `Security review: ${ctx.repository.fullName}#${pullRequest.pullRequestNumber}`,
     };
   },

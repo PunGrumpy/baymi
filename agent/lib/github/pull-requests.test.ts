@@ -3,6 +3,7 @@ import type { SessionAuthContext } from "eve/context";
 import { describe, expect, it } from "vitest";
 
 import {
+  followUpContext,
   isUnattendedReviewState,
   pullRequestFromAuth,
   shouldReviewPullRequest,
@@ -31,20 +32,22 @@ const auth = (
 });
 
 describe(shouldReviewPullRequest, () => {
-  it("reviews a pull request when it opens or becomes ready", () => {
-    expect(
-      shouldReviewPullRequest(event("opened"), human, "baymiai")
-    ).toBeTruthy();
-    expect(
-      shouldReviewPullRequest(event("ready_for_review"), human, "baymiai")
-    ).toBeTruthy();
+  it("reviews a pull request when it opens, becomes ready, or is pushed to", () => {
+    for (const action of ["opened", "ready_for_review", "synchronize"]) {
+      expect(
+        shouldReviewPullRequest(event(action), human, "baymiai")
+      ).toBeTruthy();
+    }
   });
 
-  it("skips a draft, and every action that is not an opening", () => {
+  it("skips a draft, pushes to one included, and every other action", () => {
     expect(
       shouldReviewPullRequest(event("opened", true), human, "baymiai")
     ).toBeFalsy();
-    for (const action of ["synchronize", "closed", "edited", "labeled"]) {
+    expect(
+      shouldReviewPullRequest(event("synchronize", true), human, "baymiai")
+    ).toBeFalsy();
+    for (const action of ["closed", "edited", "labeled", "reopened"]) {
       expect(
         shouldReviewPullRequest(event(action), human, "baymiai")
       ).toBeFalsy();
@@ -72,6 +75,27 @@ describe(shouldReviewPullRequest, () => {
     expect(
       shouldReviewPullRequest({ action: "opened", raw: {} }, human, "baymiai")
     ).toBeTruthy();
+  });
+});
+
+describe(followUpContext, () => {
+  it("tells a review after a push that it is a follow-up, with the new head", () => {
+    expect(
+      followUpContext({ action: "synchronize", headSha: "abc123" })
+    ).toStrictEqual([
+      "New commits were pushed to this pull request, and this is a follow-up review. The head is now abc123.",
+    ]);
+    expect(
+      followUpContext({ action: "synchronize", headSha: null })
+    ).toStrictEqual([
+      "New commits were pushed to this pull request, and this is a follow-up review.",
+    ]);
+  });
+
+  it("adds nothing to a first review", () => {
+    for (const action of ["opened", "ready_for_review"]) {
+      expect(followUpContext({ action, headSha: "abc123" })).toBeUndefined();
+    }
   });
 });
 
