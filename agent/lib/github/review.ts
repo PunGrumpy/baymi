@@ -205,7 +205,7 @@ export const renderReview = (
 });
 
 /** GitHub's limit on a comment body, with room for the split notice. */
-const COMMENT_MAX_LENGTH = 65_000;
+export const COMMENT_MAX_LENGTH = 65_000;
 
 /**
  * Splits a reply that is too long for one comment on paragraph boundaries,

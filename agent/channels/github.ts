@@ -39,6 +39,7 @@ import {
 } from "#lib/github/pull-requests";
 import { parseReview, renderReview, splitComment } from "#lib/github/review";
 import type { AnchoredReview, ParsedReview } from "#lib/github/review";
+import { renderSummary, upsertSummary } from "#lib/github/summary";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
 import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
 
@@ -183,57 +184,117 @@ const anchorAgainstDiff = async (
 };
 
 /**
+ * Submits `review` as one `POST /pulls/{number}/reviews` with a fixed
+ * `event: COMMENT`, so the verdict never comes from the model. Answers
+ * whether GitHub took it: it answers 422 for a line it will not take, and one
+ * badly placed finding must not lose the review, so the caller falls back.
+ */
+const submitReview = async (
+  channel: GitHubEventContext,
+  review: AnchoredReview,
+  pullRequestNumber: number
+): Promise<boolean> => {
+  const { headSha, owner, repo } = channel.state;
+  const rendered = renderReview(review, headSha);
+  const comments = rendered.comments.map((comment) => ({ ...comment }));
+  const body: GitHubJsonObject =
+    headSha === null
+      ? { body: rendered.body, comments, event: "COMMENT" }
+      : { body: rendered.body, comments, commit_id: headSha, event: "COMMENT" };
+  try {
+    await channel.github.request({
+      body,
+      method: "POST",
+      path: `/repos/${owner}/${repo}/pulls/${pullRequestNumber}/reviews`,
+    });
+    return true;
+  } catch (error) {
+    logFailure("review", { message: String(error) });
+    return false;
+  }
+};
+
+const postComment = async (
+  channel: GitHubEventContext,
+  message: string
+): Promise<void> => {
+  for (const chunk of splitComment(message)) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- chunks are posted in order
+    await channel.thread.post(chunk);
+  }
+};
+
+/**
+ * Posts an unattended review: the inline findings as a review, and the rest
+ * in the summary comment, which every later push edits instead of posting
+ * again (`#lib/github/summary`).
+ *
+ * @remarks
+ * The review's body is the headline alone, since the summary carries the
+ * findings the diff could not place. A review GitHub rejects puts the whole
+ * reply in the summary instead, so no finding is lost; a summary that cannot
+ * be written falls back to a new comment.
+ */
+const postUnattendedReview = async (
+  channel: GitHubEventContext,
+  message: string,
+  parsed: ParsedReview,
+  pullRequestNumber: number
+): Promise<void> => {
+  const { headSha, owner, repo } = channel.state;
+  const review = await anchorAgainstDiff(channel, parsed, pullRequestNumber);
+  const submitted =
+    review.findings.length > 0 &&
+    (await submitReview(
+      channel,
+      { ...review, body: review.body.split("\n")[0] ?? "" },
+      pullRequestNumber
+    ));
+  const summary = submitted ? review.body : message;
+  const posted = await upsertSummary({
+    body: renderSummary(summary, headSha),
+    botName: BOT_NAME,
+    owner,
+    pullRequestNumber,
+    repo,
+    request: asRequest(channel.github),
+  });
+  if (!posted.ok) {
+    logFailure("review", { message: posted.error });
+    await postComment(channel, summary);
+  }
+};
+
+/**
  * Posts the turn's reply: as a GitHub review with inline comments when the
  * reply is one, as a timeline comment otherwise.
  *
  * @remarks
- * Replaces eve's built-in handler, which posts every reply as a comment. A
- * reply that parses as a review becomes one `POST /pulls/{number}/reviews`
- * with a fixed `event: COMMENT`, so the verdict never comes from the model.
- *
- * GitHub answers 422 for a line it will not take, and one badly placed
- * finding must not lose the review, so any failure falls back to an
- * ordinary comment.
+ * Replaces eve's built-in handler, which posts every reply as a comment. An
+ * unattended review goes through `postUnattendedReview`; a review someone
+ * asked for in a mention is posted whole, as the answer to that mention.
  */
 const postReply = async (
   channel: GitHubEventContext,
   message: string,
-  parsed: ParsedReview | null
+  parsed: ParsedReview | null,
+  unattended: boolean
 ): Promise<void> => {
-  const { headSha, owner, pullRequestNumber, repo } = channel.state;
-  const review =
-    parsed === null || pullRequestNumber === null
-      ? null
-      : await anchorAgainstDiff(channel, parsed, pullRequestNumber);
-  if (review !== null && review.findings.length > 0) {
-    const rendered = renderReview(review, headSha);
-    const body: GitHubJsonObject =
-      headSha === null
-        ? {
-            body: rendered.body,
-            comments: rendered.comments.map((comment) => ({ ...comment })),
-            event: "COMMENT",
-          }
-        : {
-            body: rendered.body,
-            comments: rendered.comments.map((comment) => ({ ...comment })),
-            commit_id: headSha,
-            event: "COMMENT",
-          };
-    try {
-      await channel.github.request({
-        body,
-        method: "POST",
-        path: `/repos/${owner}/${repo}/pulls/${pullRequestNumber}/reviews`,
-      });
-      return;
-    } catch (error) {
-      logFailure("review", { message: String(error) });
-    }
+  const { pullRequestNumber } = channel.state;
+  if (parsed === null || pullRequestNumber === null) {
+    await postComment(channel, message);
+    return;
   }
-  for (const chunk of splitComment(message)) {
-    // oxlint-disable-next-line eslint/no-await-in-loop -- chunks are posted in order
-    await channel.thread.post(chunk);
+  if (unattended) {
+    await postUnattendedReview(channel, message, parsed, pullRequestNumber);
+    return;
+  }
+  const review = await anchorAgainstDiff(channel, parsed, pullRequestNumber);
+  const submitted =
+    review.findings.length > 0 &&
+    (await submitReview(channel, review, pullRequestNumber));
+  if (!submitted) {
+    await postComment(channel, message);
   }
 };
 
@@ -257,7 +318,8 @@ const postReply = async (
  * - Every reply on this channel is the turn's own completed message, which
  *   `postReply` submits as a review when it is one and posts as a comment
  *   otherwise. The agent never calls a comment tool to answer where it
- *   already is.
+ *   already is. An unattended review keeps one summary comment on the pull
+ *   request and edits it on every push rather than posting another.
  * - An unattended review is posted only if its turn read something and
  *   wrote a review (`#lib/github/grounding`). Otherwise it takes the route
  *   of a review that died: nothing on the pull request, one card in Slack.
@@ -296,7 +358,7 @@ export default githubChannel({
         }
         return;
       }
-      await postReply(channel, event.message, parsed);
+      await postReply(channel, event.message, parsed, unattended);
       if (unattended && parsed !== null) {
         await settleCheck(channel, reviewOutcome(parsed));
       }

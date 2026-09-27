@@ -9,7 +9,7 @@
 
 [![CI status](https://img.shields.io/github/actions/workflow/status/PunGrumpy/baymi/ci.yml?branch=main&style=flat&colorA=000000&colorB=000000)](https://github.com/PunGrumpy/baymi/actions/workflows/ci.yml) [![Built on eve](https://img.shields.io/badge/built%20on-eve-black?style=flat&colorA=000000&colorB=000000)](https://eve.dev) [![License](https://img.shields.io/github/license/PunGrumpy/baymi?style=flat&colorA=000000&colorB=000000)](./LICENSE)
 
-Baymi reviews every pull request opened on the repositories its GitHub App is installed on, for security only. It reads the diff and the code around it, then submits one GitHub review, and reviews again on every push. Each finding is an inline comment on the line that causes it, with the reasoning folded away and a suggestion you can commit in one click when the fix is small enough. The summary is the review body. When it finds nothing, the body says so in two sentences.
+Baymi reviews every pull request opened on the repositories its GitHub App is installed on, for security only. It reads the diff and the code around it, then submits one GitHub review, and reviews again on every push. Each finding is an inline comment on the line that causes it, with the reasoning folded away and a suggestion you can commit in one click when the fix is small enough. The summary is one comment on the pull request, edited on every push rather than posted again. When it finds nothing, the summary says so in two sentences.
 
 ```text
 src/routes/admin.ts:12                                          Unresolved
@@ -32,7 +32,7 @@ Baymi never changes your code and never runs it. It has no shell, no file writes
 
 ## What it does
 
-- **Reviews every pull request**: opened on an installed repository, for security only. Drafts wait until they are marked ready; bots are skipped. Each push gets a follow-up review that posts only new findings and says which earlier ones the push fixed. The head commit is checked out, so it reads the callers, the middleware, and the config around the change, not only the hunk. Findings land as inline review comments you can resolve one by one.
+- **Reviews every pull request**: opened on an installed repository, for security only. Drafts wait until they are marked ready; bots are skipped. Each push gets a follow-up that updates the same summary comment, says which earlier findings the push fixed, and adds inline comments only for new ones. The head commit is checked out, so it reads the callers, the middleware, and the config around the change, not only the hunk. Findings land as inline review comments you can resolve one by one.
 - **Answers an @mention**: from an owner, member, or collaborator on any issue or pull request. Ask about a finding, ask it to check one file, or ask for a second look after a fix, and it answers each earlier finding in its own thread: fixed, still open, or withdrawn.
 - **Answers in Slack**: what it found on a pull request, what is open, which repositories it watches. Tell it how you want findings reported or what counts as noise, and it saves that to memory.
 - **Posts to Slack on its own in two cases**: a critical or high finding, and a review that could not finish. One card each, with a button to the pull request, so a missing review is not mistaken for a clean one.
