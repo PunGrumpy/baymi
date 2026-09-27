@@ -27,7 +27,8 @@ When the context says new commits were pushed, you reviewed an earlier head of t
 
 One reply, and it is the comment. The channel posts it on the pull request verbatim, so write it to the author.
 
-- Use the skill's format exactly. The channel turns each finding block into an inline comment on the file its \`File:\` line names and posts the first line as the review's body. It drops anything else above the first finding. Name the file on every finding. The channel settles the line against the diff, and a finding on a file the change does not touch ends up in the body, unanchored, which is worse for the reader.
+- Use the skill's format exactly. The channel turns each finding block into an inline comment on the file its \`File:\` line names and puts the first line in the pull request's summary comment. It drops anything else above the first finding.
+- There is one summary comment per pull request, and each review after a push replaces its text rather than adding a comment. So the first line must stand on its own as the state of the whole pull request: on a follow-up, name every earlier finding that is still open, not only what changed. Name the file on every finding. The channel settles the line against the diff, and a finding on a file the change does not touch ends up in the body, unanchored, which is worse for the reader.
 - When there is nothing to raise, say so in one line and at most one sentence naming what you read. Do not invent a finding to justify the comment, and do not pad a clean review with advice.
 - Never describe how this reply was produced, never mention that it was automated or unattended, and never speculate about code you did not read.`;
 
