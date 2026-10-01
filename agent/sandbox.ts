@@ -26,6 +26,14 @@ const SESSION_SNAPSHOT_TTL_MS = DAYS_MS;
 const TEMPLATE_SNAPSHOT_TTL_MS = 30 * DAYS_MS;
 
 /**
+ * One vCPU, the smallest Vercel allows. The sandbox holds only a checkout
+ * that `read_file`, `glob` and `grep` search. Vercel provisions 2 GB of
+ * memory per vCPU for as long as the sandbox runs, and on Hobby that memory
+ * comes out of a 420 GB-hour monthly quota.
+ */
+const VCPUS = 1;
+
+/**
  * The sandbox eve checks the repository out into.
  *
  * @remarks
@@ -45,6 +53,7 @@ const TEMPLATE_SNAPSHOT_TTL_MS = 30 * DAYS_MS;
 export default defineSandbox({
   backend: vercel({
     keepLastSnapshots: { count: KEPT_SNAPSHOTS },
+    resources: { vcpus: VCPUS },
     snapshotExpiration: SESSION_SNAPSHOT_TTL_MS,
   }),
   async bootstrap({ use }) {
