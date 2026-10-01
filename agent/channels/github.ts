@@ -6,6 +6,7 @@ import type {
   GitHubJsonObject,
 } from "eve/channels/github";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
+import type { SessionContext } from "eve/context";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
@@ -40,6 +41,7 @@ import {
 import { parseReview, renderReview, splitComment } from "#lib/github/review";
 import type { AnchoredReview, ParsedReview } from "#lib/github/review";
 import { renderSummary, upsertSummary } from "#lib/github/summary";
+import { releaseSandbox } from "#lib/sandbox";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
 import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
 
@@ -299,6 +301,40 @@ const postReply = async (
 };
 
 /**
+ * Posts a turn's final reply, or holds it back and reports why.
+ */
+const settleReply = async (
+  channel: GitHubEventContext,
+  ctx: SessionContext,
+  reply: {
+    readonly message: string;
+    readonly step: number;
+    readonly turnId: string;
+  }
+): Promise<void> => {
+  const unattended = isUnattended(ctx.session.auth.current);
+  const parsed = parseReview(reply.message);
+  const holdBack = whyToHoldBack({
+    grounded: grounding.isGrounded(reply.turnId),
+    parsed: parsed !== null,
+    step: reply.step,
+    unattended,
+  });
+  if (holdBack !== null) {
+    if (grounding.reportOnce(reply.turnId)) {
+      logFailure("review", holdBack);
+      await settleCheck(channel, failedOutcome(holdBack.code));
+      await reportFailedReview(channel, { code: holdBack.code });
+    }
+    return;
+  }
+  await postReply(channel, reply.message, parsed, unattended);
+  if (unattended && parsed !== null) {
+    await settleCheck(channel, reviewOutcome(parsed));
+  }
+};
+
+/**
  * GitHub channel: a security review of every pull request opened on a
  * repository the App is installed on, again on every push to it, and
  * answers to `@baymiai` mentions from people the repository trusts.
@@ -330,6 +366,11 @@ const postReply = async (
  *   repository out. The row never gates: findings settle `neutral`.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
+ * - After a turn posts its reply, the channel deletes the turn's sandbox
+ *   (`#lib/sandbox`). eve checks the repository out again at the start of
+ *   every turn, so no later turn reads the deleted one. On Hobby, an idle
+ *   sandbox uses the monthly memory quota and its snapshot uses the lifetime
+ *   storage quota.
  */
 export default githubChannel({
   botName: BOT_NAME,
@@ -342,25 +383,17 @@ export default githubChannel({
       if (event.finishReason === "tool-calls" || !event.message) {
         return;
       }
-      const unattended = isUnattended(ctx.session.auth.current);
-      const parsed = parseReview(event.message);
-      const holdBack = whyToHoldBack({
-        grounded: grounding.isGrounded(event.turnId),
-        parsed: parsed !== null,
-        step: event.stepIndex,
-        unattended,
-      });
-      if (holdBack !== null) {
-        if (grounding.reportOnce(event.turnId)) {
-          logFailure("review", holdBack);
-          await settleCheck(channel, failedOutcome(holdBack.code));
-          await reportFailedReview(channel, { code: holdBack.code });
+      try {
+        await settleReply(channel, ctx, {
+          message: event.message,
+          step: event.stepIndex,
+          turnId: event.turnId,
+        });
+      } finally {
+        const released = await releaseSandbox(() => ctx.getSandbox());
+        if (!released.ok) {
+          logFailure("sandbox", { message: released.error });
         }
-        return;
-      }
-      await postReply(channel, event.message, parsed, unattended);
-      if (unattended && parsed !== null) {
-        await settleCheck(channel, reviewOutcome(parsed));
       }
     },
     async "session.failed"(event, channel) {

@@ -47,8 +47,10 @@ const VCPUS = 1;
  *
  * `keepLastSnapshots` bounds what one sandbox keeps, not what the project
  * holds: every session creates its own sandbox, so the total grows by one
- * snapshot per review however low the count is. `snapshotExpiration` is what
- * bounds the total.
+ * snapshot per review however low the count is. The GitHub channel deletes
+ * the sandbox and its snapshots after a turn posts its reply
+ * (`#lib/sandbox`). `snapshotExpiration` removes the snapshots that a failed
+ * turn or a failed delete leaves.
  */
 export default defineSandbox({
   backend: vercel({
