@@ -70,6 +70,7 @@ evals/                      # `eve eval`: scored checks against a live model, al
 docs/
   capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
   notes.md                  # runtime and tooling behaviour that cost time to discover
+  remediation.md            # proposal, not built: a subagent that opens draft pull requests for vulnerable dependencies
 ```
 
 ## Core components
