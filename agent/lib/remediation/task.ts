@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { FetchLike } from "#lib/github/installation";
 import type { Advisory, ResolvedPackage } from "#lib/remediation/advisories";
 import {
+  compareVersions,
   fixedVersion,
   readAdvisories,
   SBOM,
@@ -82,6 +83,27 @@ const vulnerableVersions = async (
 };
 
 /**
+ * The version to bump to, or `null` when no single release clears every
+ * advisory without going backwards.
+ *
+ * @remarks
+ * The patch has to be newer than every version in use. A lower one means
+ * the advisories were read against the wrong release line, and pushing it
+ * would be a downgrade presented as a fix.
+ */
+export const upgradeTarget = (
+  vulnerable: readonly VulnerableVersion[]
+): string | null => {
+  const target = fixedVersion(vulnerable.flatMap((entry) => entry.advisories));
+  if (target === null) {
+    return null;
+  }
+  return vulnerable.every((entry) => compareVersions(target, entry.version) > 0)
+    ? target
+    : null;
+};
+
+/**
  * Resolves the task for one package on one repository's default branch.
  *
  * @remarks
@@ -147,7 +169,7 @@ export const resolveTask = async (input: {
     baseSha,
     defaultBranch,
     ecosystem: versions[0]?.ecosystem ?? "",
-    fixedVersion: fixedVersion(vulnerable.flatMap((entry) => entry.advisories)),
+    fixedVersion: upgradeTarget(vulnerable),
     packageName,
     repository,
     vulnerable,

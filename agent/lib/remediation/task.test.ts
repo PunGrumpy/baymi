@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { FetchLike } from "#lib/github/installation";
-import { isTask, resolveTask } from "#lib/remediation/task";
+import { isTask, resolveTask, upgradeTarget } from "#lib/remediation/task";
 
 const ok = <T extends object>(body: T) =>
   Promise.resolve({ json: () => Promise.resolve(body), ok: true, status: 200 });
@@ -91,5 +91,30 @@ describe(resolveTask, () => {
     );
     const task = await resolve(fetchImpl);
     expect(isTask(task)).toBeFalsy();
+  });
+});
+
+const entry = (version: string, patched: string) => ({
+  advisories: [
+    {
+      cve: null,
+      firstPatchedVersion: patched,
+      ghsa: `GHSA-${patched}`,
+      severity: "high",
+      summary: "",
+      url: "",
+      vulnerableRange: "",
+    },
+  ],
+  version,
+});
+
+describe(upgradeTarget, () => {
+  it("takes the highest patch when it is newer than every version in use", () => {
+    expect(upgradeTarget([entry("8.9.0", "8.10.2")])).toBe("8.10.2");
+  });
+
+  it("refuses a patch that would be a downgrade", () => {
+    expect(upgradeTarget([entry("8.9.0", "7.29.1")])).toBeNull();
   });
 });

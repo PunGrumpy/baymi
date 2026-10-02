@@ -5,6 +5,7 @@ import type { Advisory } from "#lib/remediation/advisories";
 import {
   compareVersions,
   fixedVersion,
+  isInRange,
   parsePurl,
   readAdvisories,
   versionsInSbom,
@@ -144,5 +145,54 @@ describe(readAdvisories, () => {
     expect(fetchImpl.mock.calls[0]?.[0]).toBe(
       "https://api.github.com/advisories?affects=lodash%404.17.10&ecosystem=npm&per_page=100"
     );
+  });
+});
+
+describe(isInRange, () => {
+  it("holds every clause of a GitHub range", () => {
+    expect(isInRange("8.9.0", ">= 8.0.0, < 8.10.2")).toBeTruthy();
+    expect(isInRange("8.9.0", ">= 7.11.0, < 7.29.1")).toBeFalsy();
+    expect(isInRange("6.0.0", "< 6.28.1")).toBeTruthy();
+    expect(isInRange("1.2.3", "= 1.2.3")).toBeTruthy();
+    expect(isInRange("1.2.3", "")).toBeFalsy();
+  });
+});
+
+describe("reading advisories with a range per release line", () => {
+  it("takes the patch from the range that holds the version in use", async () => {
+    const fetchImpl = vi.fn<FetchLike>().mockResolvedValue({
+      json: () =>
+        Promise.resolve([
+          {
+            cve_id: null,
+            ghsa_id: "GHSA-pmjh-fq2x-6v4x",
+            html_url: "https://github.com/advisories/GHSA-pmjh-fq2x-6v4x",
+            severity: "medium",
+            summary: "undici issue",
+            vulnerabilities: [
+              {
+                first_patched_version: "7.29.1",
+                package: { ecosystem: "npm", name: "undici" },
+                vulnerable_version_range: ">= 7.11.0, < 7.29.1",
+              },
+              {
+                first_patched_version: "8.10.2",
+                package: { ecosystem: "npm", name: "undici" },
+                vulnerable_version_range: ">= 8.0.0, < 8.10.2",
+              },
+            ],
+          },
+        ]),
+      ok: true,
+      status: 200,
+    });
+    const advisories = await readAdvisories({
+      fetchImpl,
+      resolved: { ecosystem: "npm", name: "undici", version: "8.9.0" },
+      token: "tok",
+    });
+    expect(advisories.map((entry) => entry.firstPatchedVersion)).toStrictEqual([
+      "8.10.2",
+    ]);
   });
 });
