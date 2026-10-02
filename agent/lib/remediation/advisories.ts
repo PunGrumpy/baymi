@@ -147,6 +147,49 @@ export const compareVersions = (left: string, right: string): number => {
   return a.prerelease < b.prerelease ? -1 : 1;
 };
 
+const RANGE_CLAUSE = /^(?<operator>>=|<=|>|<|=)?\s*(?<bound>\S+)$/u;
+
+/**
+ * Whether a version falls in an advisory range as GitHub writes them:
+ * comma-separated clauses such as `>= 8.0.0, < 8.10.2`, `< 6.28.1` or
+ * `= 1.2.3`, all of which must hold. An empty or unreadable range holds
+ * nothing.
+ */
+export const isInRange = (version: string, range: string): boolean => {
+  const clauses = range
+    .split(",")
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  if (clauses.length === 0) {
+    return false;
+  }
+  return clauses.every((clause) => {
+    const match = RANGE_CLAUSE.exec(clause);
+    const bound = match?.groups?.bound;
+    if (bound === undefined) {
+      return false;
+    }
+    const order = compareVersions(version, bound);
+    switch (match?.groups?.operator ?? "=") {
+      case ">=": {
+        return order >= 0;
+      }
+      case "<=": {
+        return order <= 0;
+      }
+      case ">": {
+        return order > 0;
+      }
+      case "<": {
+        return order < 0;
+      }
+      default: {
+        return order === 0;
+      }
+    }
+  });
+};
+
 /** One advisory, cut to what a pull request body cites. */
 export interface Advisory {
   readonly cve: string | null;
@@ -202,19 +245,29 @@ export const readAdvisories = async (input: {
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status} reading advisories.`);
   }
-  return ADVISORIES.parse(await response.json()).map((advisory) => {
+  return ADVISORIES.parse(await response.json()).flatMap((advisory) => {
+    // One advisory carries a range per release line (`>= 7.11.0, < 7.29.1`
+    // and `>= 8.0.0, < 8.10.2`), each with its own patch. Only the range
+    // that holds the version in use says which patch fixes it.
     const vulnerability = advisory.vulnerabilities.find(
-      (candidate) => candidate.package.name === resolved.name
+      (candidate) =>
+        candidate.package.name === resolved.name &&
+        isInRange(resolved.version, candidate.vulnerable_version_range ?? "")
     );
-    return {
-      cve: advisory.cve_id,
-      firstPatchedVersion: vulnerability?.first_patched_version ?? null,
-      ghsa: advisory.ghsa_id,
-      severity: advisory.severity,
-      summary: advisory.summary,
-      url: advisory.html_url,
-      vulnerableRange: vulnerability?.vulnerable_version_range ?? "",
-    };
+    if (vulnerability === undefined) {
+      return [];
+    }
+    return [
+      {
+        cve: advisory.cve_id,
+        firstPatchedVersion: vulnerability.first_patched_version,
+        ghsa: advisory.ghsa_id,
+        severity: advisory.severity,
+        summary: advisory.summary,
+        url: advisory.html_url,
+        vulnerableRange: vulnerability.vulnerable_version_range ?? "",
+      },
+    ];
   });
 };
 

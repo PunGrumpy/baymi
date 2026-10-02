@@ -1,6 +1,6 @@
 # Remediation
 
-Status: phase 1 is built (`agent/subagents/remediation/`, `agent/lib/remediation/`). It has not run against a real repository yet. This file started as a proposal, and the sections below describe what was built. Where the build departs from the proposal, the section says why.
+Status: phase 1 is built (`agent/subagents/remediation/`, `agent/lib/remediation/`). The task resolver has run read-only against the installed repositories. The subagent has not opened a pull request yet. This file started as a proposal, and the sections below describe what was built. Where the build departs from the proposal, the section says why.
 
 ## What it does
 
@@ -33,9 +33,9 @@ The subagent runs only on code the maintainer already trusts: the default branch
 The model names a repository and a package. Everything else comes from GitHub (`agent/lib/remediation/task.ts`):
 
 1. The repository's default branch and its head commit.
-2. The dependency graph's SBOM, which lists every resolved package with a package URL. The versions of the named package come from there.
-3. GitHub's global advisory database, asked once per version in use.
-4. The fixed version: the highest first patched version across those advisories. When an advisory has no patch, there is no fixed version, and the subagent stops.
+2. The installed versions of the named package. They come from the root `bun.lock` or `package-lock.json` at that commit when one lists it, and from the dependency graph's SBOM otherwise. The lockfile comes first because GitHub's dependency graph does not parse `bun.lock`, and for a Bun project its SBOM lists `package.json` ranges such as `^5.0.1`, which no advisory can be matched against. The SBOM's versions are kept only when they are exact.
+3. GitHub's global advisory database, asked once per version in use. One advisory can carry a range per release line, each with its own patch (`>= 7.11.0, < 7.29.1` patched in 7.29.1, `>= 8.0.0, < 8.10.2` patched in 8.10.2). Only the range that holds the version in use counts.
+4. The fixed version: the highest first patched version across those advisories, and only when it is newer than every version in use. When an advisory has no patch, or the patch would be a downgrade, there is no fixed version, and the subagent stops.
 
 The proposal named Dependabot alerts. The SBOM and the global advisories need only Contents read, so phase 1 needs no new permission.
 

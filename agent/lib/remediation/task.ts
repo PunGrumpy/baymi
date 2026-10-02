@@ -3,11 +3,14 @@ import { z } from "zod";
 import type { FetchLike } from "#lib/github/installation";
 import type { Advisory, ResolvedPackage } from "#lib/remediation/advisories";
 import {
+  compareVersions,
   fixedVersion,
   readAdvisories,
   SBOM,
   versionsInSbom,
 } from "#lib/remediation/advisories";
+import type { TextFetch } from "#lib/remediation/lockfile";
+import { isExactVersion, versionsInLockfiles } from "#lib/remediation/lockfile";
 
 /**
  * The remediation task, built from GitHub's data rather than from what the
@@ -82,6 +85,94 @@ const vulnerableVersions = async (
 };
 
 /**
+ * The version to bump to, or `null` when no single release clears every
+ * advisory without going backwards.
+ *
+ * @remarks
+ * The patch has to be newer than every version in use. A lower one means
+ * the advisories were read against the wrong release line, and pushing it
+ * would be a downgrade presented as a fix.
+ */
+export const upgradeTarget = (
+  vulnerable: readonly VulnerableVersion[]
+): string | null => {
+  const target = fixedVersion(vulnerable.flatMap((entry) => entry.advisories));
+  if (target === null) {
+    return null;
+  }
+  return vulnerable.every((entry) => compareVersions(target, entry.version) > 0)
+    ? target
+    : null;
+};
+
+/**
+ * The installed versions of the package at the base commit: from the root
+ * npm or Bun lockfile when one lists it, from the dependency graph's SBOM
+ * otherwise.
+ *
+ * @remarks
+ * The SBOM is the fallback because GitHub does not parse `bun.lock`, and for
+ * a Bun project it lists `package.json` ranges instead of installed
+ * versions. A range cannot be matched against an advisory, so the SBOM's
+ * versions are kept only when they are exact.
+ */
+const installedVersions = async (input: {
+  readonly fetchImpl: FetchLike;
+  readonly packageName: string;
+  readonly repository: string;
+  readonly sha: string;
+  readonly textFetchImpl?: TextFetch;
+  readonly token: string;
+}): Promise<readonly ResolvedPackage[] | TaskRefusal> => {
+  const { fetchImpl, packageName, repository, sha, textFetchImpl, token } =
+    input;
+  const locked = await versionsInLockfiles({
+    fetchImpl: textFetchImpl,
+    packageName,
+    repository,
+    sha,
+    token,
+  });
+  if (locked !== null) {
+    return locked.versions.map((version) => ({
+      ecosystem: "npm",
+      name: packageName,
+      version,
+    }));
+  }
+  const sbom = await get(
+    fetchImpl,
+    token,
+    `/repos/${repository}/dependency-graph/sbom`
+  );
+  if (sbom.status !== 200) {
+    return {
+      reason: `${packageName} is in no root bun.lock or package-lock.json, and GitHub answered ${sbom.status} reading the dependency graph; it may be off for ${repository}.`,
+    };
+  }
+  const parsed = SBOM.safeParse(sbom.body);
+  if (!parsed.success) {
+    return {
+      reason:
+        "GitHub's dependency graph answered in a shape this does not read.",
+    };
+  }
+  const listed = versionsInSbom(parsed.data, packageName);
+  if (listed.length === 0) {
+    return {
+      reason: `${packageName} is not in ${repository}'s lockfile or dependency graph.`,
+    };
+  }
+  const exact = listed.filter((resolved) => isExactVersion(resolved.version));
+  if (exact.length === 0) {
+    return {
+      reason: `The dependency graph lists only version ranges for ${packageName} (${listed.map((resolved) => resolved.version).join(", ")}), and no lockfile it reads says what is installed.`,
+    };
+  }
+  return exact;
+};
+
+/**
  * Resolves the task for one package on one repository's default branch.
  *
  * @remarks
@@ -95,9 +186,16 @@ export const resolveTask = async (input: {
   readonly fetchImpl?: FetchLike;
   readonly packageName: string;
   readonly repository: string;
+  readonly textFetchImpl?: TextFetch;
   readonly token: string;
 }): Promise<RemediationTask | TaskRefusal> => {
-  const { fetchImpl = fetch, packageName, repository, token } = input;
+  const {
+    fetchImpl = fetch,
+    packageName,
+    repository,
+    textFetchImpl,
+    token,
+  } = input;
   const repo = await get(fetchImpl, token, `/repos/${repository}`);
   if (repo.status !== 200) {
     return { reason: `GitHub answered ${repo.status} reading ${repository}.` };
@@ -114,28 +212,16 @@ export const resolveTask = async (input: {
     };
   }
   const { sha: baseSha } = COMMIT.parse(head.body);
-  const sbom = await get(
+  const versions = await installedVersions({
     fetchImpl,
+    packageName,
+    repository,
+    sha: baseSha,
+    textFetchImpl,
     token,
-    `/repos/${repository}/dependency-graph/sbom`
-  );
-  if (sbom.status !== 200) {
-    return {
-      reason: `GitHub answered ${sbom.status} reading the dependency graph; it may be off for ${repository}.`,
-    };
-  }
-  const parsedSbom = SBOM.safeParse(sbom.body);
-  if (!parsedSbom.success) {
-    return {
-      reason:
-        "GitHub's dependency graph answered in a shape this does not read.",
-    };
-  }
-  const versions = versionsInSbom(parsedSbom.data, packageName);
-  if (versions.length === 0) {
-    return {
-      reason: `${packageName} is not in ${repository}'s dependency graph.`,
-    };
+  });
+  if ("reason" in versions) {
+    return versions;
   }
   const vulnerable = await vulnerableVersions(fetchImpl, token, versions);
   if (vulnerable.length === 0) {
@@ -147,7 +233,7 @@ export const resolveTask = async (input: {
     baseSha,
     defaultBranch,
     ecosystem: versions[0]?.ecosystem ?? "",
-    fixedVersion: fixedVersion(vulnerable.flatMap((entry) => entry.advisories)),
+    fixedVersion: upgradeTarget(vulnerable),
     packageName,
     repository,
     vulnerable,
