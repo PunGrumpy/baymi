@@ -83,6 +83,17 @@ An earlier matrix in this file cleared `gpt-5.6-sol` at 48 of 48. That run is vo
 
 Four readings in this file have now been wrong: that tool-list length drives the failure, that a particular model does not, that bursts are what reproduce it, and that the cause was unknown. The first three were measured under concurrent load or under silent model substitution. Run the conditions sequentially, interleaved, and check `switchedModel` before believing any of it.
 
+**gpt-6-astra and claude-opus-5@azure call tools through the proxy, and glm-5.3 does not (2026-10-01 and 2026-10-02).** I measured three models through `/v1/messages`, the path this agent uses. Each run sent one request at a time, interleaved across models, with a system prompt, three tools and a short diff, at effort `max`. Over the two days:
+
+- `gpt-6-astra`: 4 of 4 called `load_skill`.
+- `claude-opus-5@azure`: 2 of 2 on 2026-10-02, plus 1 of 1 on 2026-09-12.
+- `glm-5.3`: 0 of 2. Both replies said the tools were not available in its environment, the same failure `gpt-5.6-sol` showed above.
+- `claude-sonnet-5@azure` and `gemini-3.8-flash` called the tool 1 of 1 on 2026-10-01. `grok-4.6` answered in prose, 0 of 1.
+
+Vercel's DeepsecBench scores the same models on finding vulnerabilities: `gpt-6-astra` 37.8 at `xhigh` and 29.3 at `medium`, `claude-opus-5` 32.4 at `max` and 28.3 at `medium`, `glm-5.3` 21.9 at `high`, and `claude-sonnet-5` 17.0 at `max` and 5.8 at `medium`. That benchmark runs on harnesses with native tool calls, so a score there does not mean a model can call tools here.
+
+Credits are what limits the choice. AI Pass gives this account 10,000 credits a day, reset at 19:00 UTC, and the proxy refuses a paid model once they are spent (HTTP 429). On 2026-10-01 they ran out after four probe requests. One probe request of about 1,000 input tokens cost about 440 credits on `gpt-6-astra`, 350 on `claude-opus-5@azure` and 200 on `glm-5.3`. A review sends several requests with tens of thousands of tokens each, so a model change has to be measured in credits per review before it ships. The usage endpoint answers that: `GET /v1/usage` on the proxy returns `used`, `limit` and `reset_at`.
+
 **`getPullRequestContext` is the one-call read.** It returns the pull request, its metadata and recent comments together; `listPullRequestFiles` adds the patches. On a GitHub turn neither is needed for the pull request under review, since the diff is already in context and the code is in the checkout.
 
 ## Slack
