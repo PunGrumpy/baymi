@@ -143,7 +143,7 @@ describe(readAdvisories, () => {
     });
     expect(advisories[0]?.firstPatchedVersion).toBe("4.17.21");
     expect(fetchImpl.mock.calls[0]?.[0]).toBe(
-      "https://api.github.com/advisories?affects=lodash%404.17.10&ecosystem=npm&per_page=100"
+      "https://api.github.com/advisories?affects=lodash%404.17.10&ecosystem=npm&page=1&per_page=100"
     );
   });
 });
