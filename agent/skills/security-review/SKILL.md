@@ -28,12 +28,19 @@ Never run anything. You cannot, and you must not describe having done so.
 
 ## Severity
 
-- **Critical**: exploitable without authentication, or leaks a secret, or runs attacker code: an unauthenticated route that executes input, a credential committed to the repository, a workflow that runs a fork's code with write tokens.
-- **High**: an authenticated user reaches what is not theirs, or injection with a realistic path from input to sink: a missing ownership check on a record, SQL or command built from a request field, a path from a request to the filesystem.
-- **Medium**: exploitable only with preconditions the attacker does not control, or a real weakening of a defense: a token that stops expiring, CORS opened to a wildcard, a check moved to the client.
-- **Low**: defense in depth, or a practice that will become a finding as the code grows: an error that echoes internals, a missing rate limit on a cheap endpoint.
+- **Critical**: an attacker with no account runs code, reads or writes the whole data store, takes over other accounts, or gets a live secret. Examples: an unauthenticated route that executes input, a credential committed to the repository, a workflow that runs a fork's code with write tokens.
+- **High**: an attacker fully defeats an explicit control, with real consequences. Examples: a missing ownership check on a record, SQL or a shell command built from a request field, a path from a request to the filesystem, a stored script that runs for other users.
+- **Medium**: a real boundary violation that needs preconditions the attacker does not control, reaches only a narrow set of resources, or weakens a control without defeating it. Examples: a token that stops expiring, CORS opened to a wildcard, a check moved to the client.
+- **Low**: internals that are not secret leak out, or the attack takes sustained effort for little gain. Examples: an error that echoes internals, a missing rate limit on a cheap endpoint.
 
-Severity measures impact and reachability, not code quality.
+To choose between High and Medium, ask whether the attack defeats the control or only weakens it. Severity never exceeds the damage you can state. If you cannot say what the attacker gets, the severity is lower than it feels, and the finding may not be one at all.
+
+Severity measures impact and reachability, not code quality. These are not findings at any severity:
+
+- A missing header, a hardening practice, or defense in depth, when no attacker can reach anything because of its absence.
+- A standard safe API used as intended: a parameterized query, `JSON.parse`, the framework's escaping renderer.
+- A misuse that needs another caller to pass bad arguments to a function that already handles them safely.
+- Something you could not confirm. It gets no severity. The format below says where it goes.
 
 ## Format
 
