@@ -51,6 +51,7 @@ Bugs in the design rather than in the code: a feature working exactly as written
 
 ## Dependencies
 
+- A change to a manifest or lockfile: call `list_dependency_changes` for the pull request. It lists each added version with the GitHub advisories against it. An advisory is a finding only when the code calls the vulnerable function or reaches it through a path an attacker controls. `grep` for the import and the function the advisory names, and cite the GHSA id. When the tool answers `available: false`, the review goes on without it, and you say nothing about it.
 - A new dependency: what it is, who publishes it, whether the name is one letter from a popular package, whether it declares install scripts, and whether the code actually uses it.
 - A version pin loosened, a lockfile removed, a registry or resolved URL changed to somewhere other than the default registry, a git or tarball dependency added.
 - A dependency swapped for a fork.
