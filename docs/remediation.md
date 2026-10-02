@@ -45,7 +45,7 @@ The draft pull request says which checks ran and how they ended. A fix whose che
 ## Model, cost and limits
 
 - **Model:** `claude-opus-5@azure` called tools 3 of 3 through the proxy, and `gpt-6-astra` 4 of 4. `glm-5.3` called them 0 of 2, so it is out (`docs/notes.md`).
-- **Credits:** AI Pass gives this account 10,000 credits a day. One short probe request cost 350 to 440 credits. A remediation turn reads, edits and reruns checks, so it can cost several thousand. Phase 1 needs a daily cap that leaves room for reviews.
+- **Credits:** AI Pass gives this account 10,000 credits a day. One short probe request at effort `max` cost 350 to 440 credits. On 2026-10-02 the account's usage rose by about 930 credits while Baymi reviewed three pull requests on the production model, but other clients share the account, so that is a ceiling rather than a measurement. Nobody has measured a remediation run, which reads, edits and reruns checks. Measure one before setting the daily cap that leaves room for reviews.
 - **Sandbox:** Vercel Hobby ends a sandbox session after 45 minutes and counts its memory against 420 GB-hours a month. An install plus a test run may need two vCPUs where the review needs one. The subagent deletes its sandbox when it returns, as the review's already does.
 
 ## What the App would need
