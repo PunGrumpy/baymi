@@ -5,13 +5,13 @@
 - **Name:** Baymi (`baymi`), a security-minded companion for one person's repositories, built on eve. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
 - **Maintainer:** PunGrumpy
 - **License:** MIT
-- **Last updated:** 2026-09-20
+- **Last updated:** 2026-10-02
 
 ## Overview
 
 Baymi watches the repositories its GitHub App is installed on. When a pull request opens on one of them, it reads the diff and the checkout and posts one security review as a comment. When the maintainer mentions it on an issue or pull request, it answers there. In Slack it answers the maintainer about those repositories, remembers how the maintainer likes things done, and posts on its own, once and briefly, when a review finds something that should not wait.
 
-It never changes a repository and never runs its code. Every write beyond its reply either runs because a trusted person asked or waits on an approval card.
+The reviewing agent never changes a repository and never runs its code. Every write beyond its reply either runs because a trusted person asked or waits on an approval card. The one exception is a fix the maintainer asks for: the `remediation` subagent bumps a vulnerable dependency in a sandbox of its own and opens a draft pull request.
 
 eve discovers every capability from the filesystem under `agent/`. There is no central registry or wiring file: a tool's name is its filename, a memory slot's name is its filename, and so on.
 
@@ -39,6 +39,12 @@ agent/
     notify_maintainer.ts    # dynamic: the one-line Slack check-in, present only on unattended reviews when a target is configured
     read_file.ts, load_skill.ts, ask_question.ts  # the three defaults kept; agent.ts sets defaultTools: false
     glob.ts, grep.ts        # framework read tools, opted in
+  subagents/
+    remediation/            # dynamic: offered only when mayRemediate admits the caller; fixes one vulnerable dependency and opens a draft pull request
+      agent.ts              # the subagent's model (shared with the root) and description; defaultTools off
+      instructions.md       # the procedure: prepare, bump with scripts off, run the checks, up to two code fixes, submit
+      sandbox.ts            # its own sandbox: two vCPUs, egress to the npm registries only, Bun and Corepack added at bootstrap
+      tools/                # prepare_checkout, run_checks, submit_fix; bash, read_file, write_file, glob, grep; the other defaults disabled by name
   hooks/
     evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
   sandbox.ts                # Vercel Sandbox, one vCPU; marks /workspace git-safe so the channel checkout succeeds; keeps one snapshot per sandbox for one day
@@ -46,7 +52,8 @@ agent/
     security-review/        # the review procedure, severity scale, and format; references/checklist.md lists the patterns by kind of change
   lib/                      # the only place logic lives; every module has a colocated *.test.ts
     env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
-    anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL
+    anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL, and modelSettings for every agent
+    model.ts                # the effort and the Anthropic options the gateway reads
     trust.ts                # authorization, expressed once: trusted associations, the reviewer principal, Slack humans
     instructions.ts         # channelName and loadsOnChannel: which fragment a session sees
     sandbox.ts              # releaseSandbox: the GitHub channel deletes a turn's sandbox after the reply posts, to stay inside the Hobby quotas
@@ -64,13 +71,22 @@ agent/
       credentials.ts        # Connect installation token plus the App's own webhook secret; token minting for the tool
       installation.ts       # GET /installation/repositories, paged and parsed
       dependencies.ts       # GitHub's dependency review for one pull request: added versions and their advisories, removals counted
+    remediation/
+      task.ts               # the task from GitHub: default branch head, versions from the SBOM, advisories, the fixed version
+      advisories.ts         # purl parsing, the global advisory database, version comparison, the version that clears every advisory
+      checks.ts             # the install and check commands, with scripts off, and the verdict that decides verified or unverified
+      workspace.ts          # the fixed commands the tools run in the sandbox, and the parsers for what they print
+      archive.ts            # the repository tarball at one commit, downloaded in the runtime with a size cap
+      commit.ts             # the Git Data API push to a baymi/ branch and the draft pull request
+      pull-request.ts       # the draft pull request's title and body, verdict first
+      state.ts              # the durable session state the sandbox cannot reach: task, check record, submitted link
     slack/
       notify.ts             # the check-in card (Block Kit, Vercel's deployment-message shape) and the two-call Slack post (opens a DM when the target is a person)
 evals/                      # `eve eval`: scored checks against a live model, all tagged fast
 docs/
   capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
   notes.md                  # runtime and tooling behaviour that cost time to discover
-  remediation.md            # proposal, not built: a subagent that opens draft pull requests for vulnerable dependencies
+  remediation.md            # the remediation subagent: why it exists, its boundary, where the task comes from, how a fix is verified
 ```
 
 ## Core components
@@ -84,6 +100,7 @@ docs/
 | Memory | `agent/memory/file.ts` | Memory | eve's `fileMemory()` on Vercel Blob, one document under a constant `maintainer` scope. The same person is `github:<id>` on a pull request and `slack:<team>:<id>` in a DM, and a preference stated in one place holds in the other. The scope resolves to `null` on unattended turns, which disables recall and the save tools there, so a diff can never write into what every later turn reads |
 | Scope | `agent/tools/list_installed_repositories.ts` + `agent/lib/github/installation.ts` | Tool | There is no configured repository list. GitHub delivers webhooks and mints tokens only for repositories the App is installed on, and this tool reads that set back so the agent can say what it watches and refuse what it does not |
 | Dependency advisories | `agent/tools/list_dependency_changes.ts` + `agent/lib/github/dependencies.ts` | Tool | The agent matches no CVE itself. GitHub's dependency review compares the pull request's base and head commits and lists each added version with the advisories against it, inside GitHub's API and with the installation token the agent already holds, so the agent fetches no URL. The review decides from the checkout whether the code reaches the vulnerable function. A repository with dependency review off answers `available: false`, and the review goes on without it |
+| Remediation | `agent/subagents/remediation/` + `agent/lib/remediation/` + `mayRemediate` in `agent/lib/trust.ts` | Subagent (dynamic) | A person asks Baymi to fix a vulnerable package, and the root hands it to `remediation`, a declared subagent with its own tools and sandbox. `prepare_checkout` resolves the task from GitHub in the app runtime: the default branch's head, the versions the SBOM lists, the global advisories against them, and the version that clears them. It writes the archive into the sandbox and the task into durable state. The model bumps the package with lifecycle scripts off. `run_checks` runs the install and the project's checks with fixed commands and records the exit codes with a digest of the change. `submit_fix` pushes a `baymi/` branch through the Git Data API and opens a draft pull request headed verified or unverified mitigation, then deletes the sandbox. The token never enters the sandbox, and the repository and commit come from state, never from the model. `docs/remediation.md` has the design |
 | GitHub access | `agent/extensions/github.ts` + `agent/lib/github/tools.ts` + `agent/lib/github/approval.ts` | Extension | Eleven tools under the `github` namespace: seven reads and four writes. `addIssueComment`, `addPullRequestComment`, and `replyToReviewComment` run uncarded for a trusted person and are refused on an unattended turn; `createIssue` asks on a card. The review itself is not a tool: the channel submits it with a fixed `COMMENT` event, so nothing mounted can approve or request changes, edit a file, label, assign, or close |
 | Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model comes from `MODEL` through `agent/lib/anthropic.ts`; reasoning stays high because a review is one long careful read. The root prompt is always on. Fragments resolve at `session.started` and load only on their own channel, and all of them load on the HTTP route, which exists to exercise the others |
 | Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One `baymi_turn` event per turn: identity, channel, tokens, tools, outcome, never content. The model answers through a gateway of the operator's choosing, so this is the only record of what a week of reviews cost |
@@ -91,6 +108,8 @@ docs/
 ## Why it is read-only
 
 The sandbox holds a checkout of whatever pull request last opened, and the pull request came from whoever opened it. eve attaches the installation token to the sandbox's outbound requests to `github.com` for the checkout. A shell that could run the pull request's code could make requests from inside that boundary. So `agent/agent.ts` sets `defaultTools: false`, which removes `bash` and `write_file`, and with them `web_fetch` and `web_search`, because a URL built from an untrusted diff could send a private repository's contents to an outside host in the query string. `agent/tools/` adds back `read_file`, `load_skill`, and `ask_question`, and opts into `glob` and `grep`, which search the filesystem. The review is reasoning over code, and the instructions say so. The agent never claims to have run, tested, or reproduced anything.
+
+The remediation subagent is the one place with a shell, and it sits outside this agent on purpose. A declared subagent inherits none of the root's tools or sandbox. Its sandbox holds no credential, reaches only the npm registries, and only ever holds the default branch of an installed repository, at a commit resolved from GitHub. The subagent is offered only on a turn a person started, so the review turn that reads a stranger's diff cannot call it. `docs/remediation.md` describes the boundary.
 
 `todo` and the built-in `agent` delegation stay off for a smaller reason: the gateway this agent answers through degrades as the tool list grows (`docs/notes.md`), and a review is one pass with no side quests to track.
 
@@ -100,6 +119,7 @@ The sandbox holds a checkout of whatever pull request last opened, and the pull 
 2. **The maintainer mentions `@baymiai`** on that pull request, or any issue. `shouldDispatchComment` admits owners, members, and collaborators; the session (the same one, on a reviewed pull request) continues under their principal, so memory and the uncarded writes are available and the review fragment is not. The channel posts the reply in the thread.
 3. **The maintainer talks to Baymi in Slack.** A DM, a mention, or a reply in a thread it owns starts or resumes a session. It answers from the GitHub tools, remembers what it is told to keep, and points a request for a full review back at the pull request.
 4. **A review dies, or never ran.** The channel's failure handler recognizes an unattended review from the state (a pull request with no triggering comment), logs the detail, posts nothing in the pull request's timeline, fails the check run so the author can see the change went unreviewed, and sends the review-failed line to Slack when a target is configured. An unattended reply with no tool loop behind it is held back the same way. Two things mark it: no `action.result`, and a `stepIndex` the loop never advanced.
+5. **The maintainer asks for a fix.** A mention or a Slack message names a repository and a vulnerable package. The root hands it to `remediation`, which resolves the task from GitHub, bumps the package in its own sandbox, runs the project's checks, tries up to two code fixes when they fail, and opens a draft pull request on a `baymi/` branch. The root reports the link and whether the checks passed.
 
 ## Data stores
 

@@ -96,3 +96,19 @@ export const isSlackHuman = (
   auth.authenticator === "slack-webhook" &&
   auth.principalType === "user" &&
   (teamId === undefined || auth.principalId.startsWith(`slack:${teamId}:`));
+
+/**
+ * Whether this turn may start a remediation: a person asked, in a session
+ * that is not an unattended review.
+ *
+ * @remarks
+ * Remediation opens a pull request with code the sandbox changed, so it is
+ * the one capability that writes to a repository. A person has to have asked
+ * for it on this turn. The channels admit only trusted people to a session
+ * at all (`shouldDispatchComment`, `isSlackHuman`), and this keeps out the
+ * constructed reviewer principal and any service caller on top of that. A
+ * diff can never start one, because the review turn reading it has no
+ * remediation tool to call.
+ */
+export const mayRemediate = (auth: SessionAuthContext | null): boolean =>
+  auth !== null && !isUnattended(auth) && auth.principalType === "user";

@@ -1,34 +1,6 @@
 import { defineAgent } from "eve";
 
-import { anthropic } from "#lib/anthropic";
-import { env } from "#lib/env";
-
-/**
- * The effort the agent asks for, named on the request as well as set as
- * `reasoning`.
- *
- * @remarks
- * `reasoning` on its own does not reach this gateway; it becomes a small
- * thinking budget that resolves to the lowest level, which is what every
- * review ran at until 2026-09-12. `docs/notes.md` has the measurements.
- * `thinking` has to be named alongside the effort, because the SDK builds
- * the thinking block from `reasoning` only while no effort is set, and a
- * request carrying no thinking block runs with no thinking at all.
- *
- * `high` is what the gateway runs. thaipass rounds an Anthropic-protocol
- * `xhigh` down to `high` (`apps/proxy/src/anthropic/schema.ts`), so the
- * `xhigh` this used to name never reached a model. `max` is the one level
- * above it, and it is not set here: AI Pass bills credits per request out of
- * a daily allowance, and a review at `max` spends more of it on thinking.
- * `docs/notes.md` has the measurements.
- */
-const EFFORT = "high";
-
-/** What `modelOptions` puts on every request; see {@link EFFORT}. */
-const ANTHROPIC_OPTIONS = {
-  effort: EFFORT,
-  thinking: { type: "enabled" },
-} as const;
+import { modelSettings } from "#lib/anthropic";
 
 /**
  * Root agent runtime configuration.
@@ -37,6 +9,8 @@ const ANTHROPIC_OPTIONS = {
  * Sets the model and the session budget. eve discovers the rest of the
  * agent from the filesystem under `agent/`, so a model swap is an
  * environment change while reasoning and context-window changes are code.
+ * The model, its options and the effort come from `modelSettings` in `#lib/anthropic`, which the
+ * remediation subagent shares.
  * `defaultTools: false` is what makes the agent read-only, and
  * ARCHITECTURE.md explains which tools come back and why the rest do not.
  */
@@ -48,8 +22,6 @@ export default defineAgent({
   limits: {
     maxOutputTokensPerSession: 250_000,
   },
-  model: anthropic(env.MODEL),
   modelContextWindowTokens: 1_000_000,
-  modelOptions: { providerOptions: { anthropic: ANTHROPIC_OPTIONS } },
-  reasoning: EFFORT,
+  ...modelSettings(),
 });

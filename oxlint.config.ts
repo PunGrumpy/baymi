@@ -12,7 +12,7 @@ export default defineConfig({
   // own examples use snake_case (`get_weather.ts`).
   overrides: [
     {
-      files: ["agent/tools/*.ts"],
+      files: ["agent/tools/*.ts", "agent/subagents/*/tools/*.ts"],
       rules: { "unicorn/filename-case": "off" },
     },
   ],
