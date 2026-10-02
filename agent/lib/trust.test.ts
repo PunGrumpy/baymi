@@ -5,6 +5,7 @@ import {
   isSlackHuman,
   isTrustedGitHubAssociation,
   isUnattended,
+  mayRemediate,
   REVIEWER_PRINCIPAL,
 } from "#lib/trust";
 
@@ -61,6 +62,29 @@ describe(isUnattended, () => {
       )
     ).toBeFalsy();
     expect(isUnattended(null)).toBeFalsy();
+  });
+});
+
+describe(mayRemediate, () => {
+  it("admits a person and refuses the reviewer, a service, or nobody", () => {
+    expect(
+      mayRemediate(
+        auth({ authenticator: "github-webhook", principalId: "github:42" })
+      )
+    ).toBeTruthy();
+    expect(
+      mayRemediate(
+        auth({
+          authenticator: "github-webhook",
+          principalId: REVIEWER_PRINCIPAL,
+          principalType: "service",
+        })
+      )
+    ).toBeFalsy();
+    expect(
+      mayRemediate(auth({ principalId: "eve:evals", principalType: "service" }))
+    ).toBeFalsy();
+    expect(mayRemediate(null)).toBeFalsy();
   });
 });
 
