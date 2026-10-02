@@ -220,6 +220,78 @@ const ADVISORIES = z.array(
   })
 );
 
+type ParsedAdvisory = z.infer<typeof ADVISORIES>[number];
+
+/** Advisories per page; also the most the API returns at once. */
+const ADVISORY_PAGE_SIZE = 100;
+
+/** How many packages go into one `affects` filter. */
+const PACKAGES_PER_QUERY = 100;
+
+/** Pages read per query; a lockfile churn that needs more is not a review. */
+const MAX_ADVISORY_PAGES = 5;
+
+/**
+ * The advisory as it applies to one installed version, or nothing when no
+ * range of it holds that version.
+ *
+ * @remarks
+ * One advisory carries a range per release line (`>= 7.11.0, < 7.29.1` and
+ * `>= 8.0.0, < 8.10.2`), each with its own patch. Only the range that holds
+ * the version in use says which patch fixes it.
+ */
+const applyTo = (
+  advisory: ParsedAdvisory,
+  resolved: { readonly name: string; readonly version: string }
+): readonly Advisory[] => {
+  const vulnerability = advisory.vulnerabilities.find(
+    (candidate) =>
+      candidate.package.name === resolved.name &&
+      isInRange(resolved.version, candidate.vulnerable_version_range ?? "")
+  );
+  if (vulnerability === undefined) {
+    return [];
+  }
+  return [
+    {
+      cve: advisory.cve_id,
+      firstPatchedVersion: vulnerability.first_patched_version,
+      ghsa: advisory.ghsa_id,
+      severity: advisory.severity,
+      summary: advisory.summary,
+      url: advisory.html_url,
+      vulnerableRange: vulnerability.vulnerable_version_range ?? "",
+    },
+  ];
+};
+
+/** One page of the global advisory database, filtered to these packages. */
+const advisoryPage = async (input: {
+  readonly affects: readonly string[];
+  readonly ecosystem: string;
+  readonly fetchImpl: FetchLike;
+  readonly page: number;
+  readonly token: string;
+}): Promise<readonly ParsedAdvisory[]> => {
+  const query = new URLSearchParams({
+    affects: input.affects.join(","),
+    ecosystem: input.ecosystem,
+    page: String(input.page),
+    per_page: String(ADVISORY_PAGE_SIZE),
+  });
+  const response = await input.fetchImpl(`${GITHUB_API}/advisories?${query}`, {
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${input.token}`,
+      "x-github-api-version": "2022-11-28",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} reading advisories.`);
+  }
+  return ADVISORIES.parse(await response.json());
+};
+
 /**
  * The advisories that affect one version of one package, from GitHub's
  * global advisory database.
@@ -230,45 +302,64 @@ export const readAdvisories = async (input: {
   readonly token: string;
 }): Promise<readonly Advisory[]> => {
   const { fetchImpl = fetch, resolved, token } = input;
-  const query = new URLSearchParams({
-    affects: `${resolved.name}@${resolved.version}`,
+  const advisories = await advisoryPage({
+    affects: [`${resolved.name}@${resolved.version}`],
     ecosystem: resolved.ecosystem,
-    per_page: "100",
+    fetchImpl,
+    page: 1,
+    token,
   });
-  const response = await fetchImpl(`${GITHUB_API}/advisories?${query}`, {
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "x-github-api-version": "2022-11-28",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} reading advisories.`);
-  }
-  return ADVISORIES.parse(await response.json()).flatMap((advisory) => {
-    // One advisory carries a range per release line (`>= 7.11.0, < 7.29.1`
-    // and `>= 8.0.0, < 8.10.2`), each with its own patch. Only the range
-    // that holds the version in use says which patch fixes it.
-    const vulnerability = advisory.vulnerabilities.find(
-      (candidate) =>
-        candidate.package.name === resolved.name &&
-        isInRange(resolved.version, candidate.vulnerable_version_range ?? "")
-    );
-    if (vulnerability === undefined) {
-      return [];
+  return advisories.flatMap((advisory) => applyTo(advisory, resolved));
+};
+
+/**
+ * The advisories against many installed packages of one ecosystem, keyed by
+ * `name@version`. A package no advisory affects has no key.
+ *
+ * @remarks
+ * The `affects` filter takes a list, so a hundred packages cost one call
+ * rather than a hundred. Each advisory is still applied per version through
+ * its ranges, because the filter says only that some listed version is
+ * affected.
+ */
+export const readAdvisoriesForPackages = async (input: {
+  readonly ecosystem: string;
+  readonly fetchImpl?: FetchLike;
+  readonly packages: readonly {
+    readonly name: string;
+    readonly version: string;
+  }[];
+  readonly token: string;
+}): Promise<ReadonlyMap<string, readonly Advisory[]>> => {
+  const { ecosystem, fetchImpl = fetch, packages, token } = input;
+  const found = new Map<string, Advisory[]>();
+  for (let start = 0; start < packages.length; start += PACKAGES_PER_QUERY) {
+    const chunk = packages.slice(start, start + PACKAGES_PER_QUERY);
+    const affects = chunk.map((locked) => `${locked.name}@${locked.version}`);
+    for (let page = 1; page <= MAX_ADVISORY_PAGES; page += 1) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- pages are sequential by nature
+      const advisories = await advisoryPage({
+        affects,
+        ecosystem,
+        fetchImpl,
+        page,
+        token,
+      });
+      for (const advisory of advisories) {
+        for (const locked of chunk) {
+          const applied = applyTo(advisory, locked);
+          if (applied.length > 0) {
+            const key = `${locked.name}@${locked.version}`;
+            found.set(key, [...(found.get(key) ?? []), ...applied]);
+          }
+        }
+      }
+      if (advisories.length < ADVISORY_PAGE_SIZE) {
+        break;
+      }
     }
-    return [
-      {
-        cve: advisory.cve_id,
-        firstPatchedVersion: vulnerability.first_patched_version,
-        ghsa: advisory.ghsa_id,
-        severity: advisory.severity,
-        summary: advisory.summary,
-        url: advisory.html_url,
-        vulnerableRange: vulnerability.vulnerable_version_range ?? "",
-      },
-    ];
-  });
+  }
+  return found;
 };
 
 /**
