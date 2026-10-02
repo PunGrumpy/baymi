@@ -12,8 +12,17 @@ You are reading one change to decide whether it exposes the repository, its user
 2. **Read the whole diff**: It is in your context. A file whose patch was omitted for size is still listed; read it from the checkout with `read_file` when its name suggests it matters (a workflow, a config file, a lockfile whose companion manifest changed).
 3. **Follow the data past the hunk**: For every place the change takes input or produces output, find where the input comes from and where the output goes, in the checkout. `grep` for the callers of a changed function; open the middleware in front of a new route; find where a new environment variable is read. A hunk that looks safe in isolation may be safe only because of a check that lives elsewhere, and a hunk that looks dangerous may be behind one. Say which case applies, and cite the check.
 4. **Check the list**: `references/checklist.md` names the concrete patterns to look for, by kind of change. Go through the sections that apply.
-5. **Confirm before you report**: A finding needs three things you can point at: the line, the attacker's move, and the reason the code allows it. If any is missing, it is not a finding. After the findings you may add at most two notes, one sentence each, for things you could not confirm.
-6. **Write the review**: use the format below.
+5. **Confirm before you report**: A finding needs three things you can point at: the line, the attacker's move, and the reason the code allows it. If any is missing, it is not a finding. The attacker's move starts where untrusted input enters the code, so find that place too: the route, the handler argument, the webhook payload, the file or record a stranger can write. If the input comes only from the operator's own config or the server's own state, there is no attacker and no finding. A committed secret or a broken algorithm needs no entry point. After the findings you may add at most two notes, one sentence each, for things you could not confirm.
+6. **Argue against each finding once**: Assume it is wrong and look for the reason before you write it.
+   - Open the cited file at the cited line again. Check that the function, the variable and the path are there as you describe them. A finding about code that is not there is the worst thing a review can post.
+   - Look for the strongest control between the entry and the sink: middleware, a schema, a parameterized call, an escaping renderer, a framework default. If it stops the attack, drop the finding.
+   - If the change is itself a fix, ask whether it blocks the attack it targets. If it does, do not go looking for a different kind of attack to report instead.
+   - Report the effect the code allows, not a stronger one. A crash is not code execution, an action on the caller's own data is not privilege gain, and a weakened control is not a bypassed one.
+   - A file under `test`, `mock` or `example` is not safe because of its path. Check whether production code imports it or a route serves it.
+
+   Whatever survives this is a finding.
+
+7. **Write the review**: use the format below.
 
 Never run anything. You cannot, and you must not describe having done so.
 
