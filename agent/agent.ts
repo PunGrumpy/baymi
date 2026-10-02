@@ -14,8 +14,15 @@ import { env } from "#lib/env";
  * `thinking` has to be named alongside the effort, because the SDK builds
  * the thinking block from `reasoning` only while no effort is set, and a
  * request carrying no thinking block runs with no thinking at all.
+ *
+ * `high` is what the gateway runs. thaipass rounds an Anthropic-protocol
+ * `xhigh` down to `high` (`apps/proxy/src/anthropic/schema.ts`), so the
+ * `xhigh` this used to name never reached a model. `max` is the one level
+ * above it, and it is not set here: AI Pass bills credits per request out of
+ * a daily allowance, and a review at `max` spends more of it on thinking.
+ * `docs/notes.md` has the measurements.
  */
-const EFFORT = "xhigh";
+const EFFORT = "high";
 
 /** What `modelOptions` puts on every request; see {@link EFFORT}. */
 const ANTHROPIC_OPTIONS = {
