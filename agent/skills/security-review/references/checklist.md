@@ -115,6 +115,36 @@ No scanner finds these. For a workflow the change touches, ask what an authentic
 - A check-then-act on a shared resource without a lock or a transaction: balance checks, quota checks, unique-name checks.
 - A temporary file with a predictable name; a file created before its permissions are set.
 
+## Framework conventions
+
+Each framework has a few rules that its own code makes easy to break. Use the sections for the frameworks the change touches.
+
+### Next.js
+
+- `middleware.ts` is not enough auth on its own. A route that its `matcher` does not cover gets no check at all, so the route or the data access needs its own.
+- A Server Action is a public POST endpoint, whoever renders the form. Each one needs its own authentication and authorization check.
+- `searchParams` and dynamic segments (`[id]`, `[...slug]`) are user input, in middleware as well as in pages.
+- `unstable_cache` or `revalidateTag` with a key built from user input can serve one tenant's data to another.
+
+### React
+
+- `dangerouslySetInnerHTML` with any string a user can influence is XSS. A value from the database or a username counts as user input.
+- JSON written into a `<script>` tag must escape `</`, or a value containing `</script>` ends the tag.
+
+### Express, Hono and Koa
+
+- Middleware order is the auth. A route registered before `app.use(auth)` in Express or Koa, or before `app.use('*', auth)` in Hono, runs without it.
+- `res.sendFile` or a static root built from a request value is path traversal.
+- An error handler that sends `err.stack` or `err.message` to the client leaks internals.
+- CORS that reflects any origin with credentials lets another site make authenticated requests.
+
+### Bun, Cloudflare Workers and other raw `fetch` handlers
+
+- `Bun.serve({ fetch })` and a Worker's `fetch(request, env)` have no framework gate. All authentication and validation is in the handler.
+- `Bun.$` and `Bun.spawn` with interpolated request values are command injection.
+- A Worker binding (`env.KV`, `env.DB`, an R2 bucket) reachable from a route the caller controls exposes all of that binding.
+- `caches.default` keys on the full URL, so an attacker's query string can store a poisoned response.
+
 ## The obvious things
 
 Cheap to check, and easy to leave to somebody else. Go through these on any change large enough that nobody read all of it.
