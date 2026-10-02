@@ -52,8 +52,10 @@ The draft pull request says which checks ran and how they ended. A fix whose che
 
 The App now has Contents read and Pull requests write. Pushing a branch needs Contents write, which also lets the token change any branch. The caller would push only to `baymi/` branches. A branch protection rule on the default branch is what actually stops a push there, so phase 1 should not ship without one.
 
-## Open questions
+## Decisions (2026-10-02)
 
-1. Is Contents write acceptable for this App, or should remediation use a second GitHub App that holds only that permission?
-2. Should phase 1 cover only npm and Bun projects, or every ecosystem the dependency graph reports?
-3. When the bump breaks the tests, should the subagent try a code fix in the same run, or open the draft with the failure and stop?
+The maintainer answered the three open questions:
+
+1. **The `baymiai` App takes Contents write.** No second App. The caller still pushes only to `baymi/` branches, and a branch protection rule on each default branch stops a push there.
+2. **Every ecosystem the dependency graph reports.** Detection and the version bump cover all of them. Verification is the limit: the subagent can run checks only for a toolchain its sandbox has. Each toolchain added to the sandbox image grows every snapshot, and Hobby allows 15 GB of snapshot storage for the life of the account. So the sandbox starts with Node and Bun. A fix in another ecosystem opens as an unverified mitigation, with the checks it could not run named in the pull request, until its toolchain is added.
+3. **When the bump breaks the checks, the subagent tries a code fix in the same run.** It gets two attempts. Each attempt edits the code and reruns every check. If both fail, the draft opens with the bump, the last attempt and the failing output. Hobby ends a sandbox session after 45 minutes, so the run also stops at that limit, whatever attempt it is on.
