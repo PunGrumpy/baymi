@@ -50,12 +50,12 @@ The draft pull request says which checks ran and how they ended. A fix whose che
 
 ## What the App would need
 
-The App now has Contents read and Pull requests write. Pushing a branch needs Contents write, which also lets the token change any branch. The caller would push only to `baymi/` branches. A branch protection rule on the default branch is what actually stops a push there, so phase 1 should not ship without one.
+The installed App already has Contents write, though `README.md` and `.env.example` list Contents read, the least the review needs. Pushing a branch needs Contents write, and Contents write also lets the token change any branch. That makes it a risk today, not only once remediation exists: the installation token eve attaches to the review sandbox's requests to `github.com` can push. Nothing in that sandbox runs code, so nothing uses the token that way now. A branch protection rule on each default branch is what stops a push there, and it should be in place before phase 1 ships. The caller would push only to `baymi/` branches, and the pull request that builds phase 1 updates the setup docs to Contents write.
 
 ## Decisions (2026-10-02)
 
 The maintainer answered the three open questions:
 
-1. **The `baymiai` App takes Contents write.** No second App. The caller still pushes only to `baymi/` branches, and a branch protection rule on each default branch stops a push there.
+1. **The `baymiai` App keeps the Contents write it already has.** No second App. The caller still pushes only to `baymi/` branches, and a branch protection rule on each default branch stops a push there.
 2. **Every ecosystem the dependency graph reports.** Detection and the version bump cover all of them. Verification is the limit: the subagent can run checks only for a toolchain its sandbox has. Each toolchain added to the sandbox image grows every snapshot, and Hobby allows 15 GB of snapshot storage for the life of the account. So the sandbox starts with Node and Bun. A fix in another ecosystem opens as an unverified mitigation, with the checks it could not run named in the pull request, until its toolchain is added.
 3. **When the bump breaks the checks, the subagent tries a code fix in the same run.** It gets two attempts. Each attempt edits the code and reruns every check. If both fail, the draft opens with the bump, the last attempt and the failing output. Hobby ends a sandbox session after 45 minutes, so the run also stops at that limit, whatever attempt it is on.
