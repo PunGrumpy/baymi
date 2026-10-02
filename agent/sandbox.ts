@@ -26,6 +26,14 @@ const SESSION_SNAPSHOT_TTL_MS = DAYS_MS;
 const TEMPLATE_SNAPSHOT_TTL_MS = 30 * DAYS_MS;
 
 /**
+ * One vCPU, the smallest Vercel allows. The sandbox holds only a checkout
+ * that `read_file`, `glob` and `grep` search. Vercel provisions 2 GB of
+ * memory per vCPU for as long as the sandbox runs, and on Hobby that memory
+ * comes out of a 420 GB-hour monthly quota.
+ */
+const VCPUS = 1;
+
+/**
  * The sandbox eve checks the repository out into.
  *
  * @remarks
@@ -39,12 +47,15 @@ const TEMPLATE_SNAPSHOT_TTL_MS = 30 * DAYS_MS;
  *
  * `keepLastSnapshots` bounds what one sandbox keeps, not what the project
  * holds: every session creates its own sandbox, so the total grows by one
- * snapshot per review however low the count is. `snapshotExpiration` is what
- * bounds the total.
+ * snapshot per review however low the count is. The GitHub channel deletes
+ * the sandbox and its snapshots after a turn posts its reply
+ * (`#lib/sandbox`). `snapshotExpiration` removes the snapshots that a failed
+ * turn or a failed delete leaves.
  */
 export default defineSandbox({
   backend: vercel({
     keepLastSnapshots: { count: KEPT_SNAPSHOTS },
+    resources: { vcpus: VCPUS },
     snapshotExpiration: SESSION_SNAPSHOT_TTL_MS,
   }),
   async bootstrap({ use }) {

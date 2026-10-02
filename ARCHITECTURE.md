@@ -40,7 +40,7 @@ agent/
     glob.ts, grep.ts        # framework read tools, opted in
   hooks/
     evlog.ts                # one evlog wide event per turn; fs drain in dev, PostHog when configured; never message content
-  sandbox.ts                # Vercel Sandbox; marks /workspace git-safe so the channel checkout succeeds; one snapshot per sandbox
+  sandbox.ts                # Vercel Sandbox, one vCPU; marks /workspace git-safe so the channel checkout succeeds; keeps one snapshot per sandbox for one day
   skills/
     security-review/        # the review procedure, severity scale, and format; references/checklist.md lists the patterns by kind of change
   lib/                      # the only place logic lives; every module has a colocated *.test.ts
@@ -48,6 +48,7 @@ agent/
     anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL
     trust.ts                # authorization, expressed once: trusted associations, the reviewer principal, Slack humans
     instructions.ts         # channelName and loadsOnChannel: which fragment a session sees
+    sandbox.ts              # releaseSandbox: the GitHub channel deletes a turn's sandbox after the reply posts, to stay inside the Hobby quotas
     failure.ts              # the notices a channel posts when a turn or session dies, and the log line that keeps the detail
     drains.ts               # fan-out for wide events: one failing destination never takes the turn with it
     github/
@@ -101,7 +102,7 @@ The sandbox holds a checkout of whatever pull request last opened, and the pull 
 - **GitHub** (external): the repositories and pull requests. All access goes through the eve channel and `@github-tools/eve-extension` with an installation token brokered by Vercel Connect; no token in code.
 - **Slack** (external): the maintainer's workspace. Inbound through the eve channel via Connect; the check-ins post with the same connector's app-scoped token.
 - **Vercel Blob**: the memory document, under eve's file memory prefix, authenticated with the store's token or the project's OIDC. `eve integration setup file-memory` provisions it.
-- **Vercel Sandbox**: the checkout the read tools search. Not a durable store.
+- **Vercel Sandbox**: the checkout the read tools search. It is not a durable store. The GitHub channel deletes it after a turn posts its reply, and the next turn gets a new sandbox with the head checked out again.
 
 There is no application database.
 

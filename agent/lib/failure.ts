@@ -55,8 +55,11 @@ export const failureLine = (
   return `${lead}${code}. ${guidance}`;
 };
 
-/** What died: one turn, the session around it, or the check-in about either. */
-export type FailureScope = "notice" | "review" | "session" | "turn";
+/**
+ * What died: one turn, the session around it, the check-in about either, or
+ * the cleanup after it.
+ */
+export type FailureScope = "notice" | "review" | "sandbox" | "session" | "turn";
 
 /** The same failure as one line for a log, where the provider's text belongs. */
 export const failureDetail = (
