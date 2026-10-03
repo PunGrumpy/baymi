@@ -1,6 +1,7 @@
 import { defineAgent, defineDynamic } from "eve";
 
 import { modelSettings } from "#lib/anthropic";
+import { env } from "#lib/env";
 import { mayRemediate } from "#lib/trust";
 
 const DESCRIPTION =
@@ -22,13 +23,17 @@ const DESCRIPTION =
  * The resolver runs at `session.started` and `turn.started`, so a review
  * session that a person later joins by mention gets the subagent on that
  * turn, and the unattended review turns before it never see it.
+ *
+ * It runs on `REMEDIATION_MODEL` when that is set, and on the root's `MODEL`
+ * otherwise. Its work is mechanical and `run_checks` verifies it, so it can
+ * take a cheaper model than the review.
  */
 const remediationAgent = () =>
   defineAgent({
     defaultTools: false,
     description: DESCRIPTION,
     limits: { maxOutputTokensPerSession: 150_000 },
-    ...modelSettings(),
+    ...modelSettings(env.REMEDIATION_MODEL ?? env.MODEL),
   });
 
 export default defineDynamic({

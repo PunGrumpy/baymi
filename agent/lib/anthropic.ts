@@ -16,11 +16,12 @@ export const anthropic = createAnthropic({
 /**
  * The model settings every agent in this project runs with: the root agent
  * and the remediation subagent answer through the same gateway, at the same
- * effort, so a model change is still one environment variable.
+ * effort. Each names its own model id, so the subagent can run on a cheaper
+ * one than the review.
  */
-export const modelSettings = () =>
+export const modelSettings = (modelId: string) =>
   ({
-    model: anthropic(env.MODEL),
+    model: anthropic(modelId),
     modelOptions: { providerOptions: { anthropic: ANTHROPIC_OPTIONS } },
     reasoning: EFFORT,
   }) as const;

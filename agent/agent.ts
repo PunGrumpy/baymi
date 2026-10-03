@@ -1,6 +1,7 @@
 import { defineAgent } from "eve";
 
 import { modelSettings } from "#lib/anthropic";
+import { env } from "#lib/env";
 
 /**
  * Root agent runtime configuration.
@@ -23,5 +24,5 @@ export default defineAgent({
     maxOutputTokensPerSession: 250_000,
   },
   modelContextWindowTokens: 1_000_000,
-  ...modelSettings(),
+  ...modelSettings(env.MODEL),
 });
