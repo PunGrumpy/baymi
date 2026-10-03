@@ -37,7 +37,8 @@ const slackConversation = z
  * rather than breaking one. Without `SLACK_NOTIFY_CHANNEL` the agent still
  * reviews and still answers; what it cannot do is check in on Slack when a
  * review turns up something serious. Without the PostHog key the turn events
- * still print in `eve dev` and simply have nowhere to go.
+ * still print in `eve dev` and simply have nowhere to go. Without
+ * `REMEDIATION_MODEL` the remediation subagent runs on `MODEL`.
  *
  * Each variable is described in `.env.example`.
  */
@@ -52,6 +53,7 @@ export const env = createEnv({
     MODEL: z.string(),
     POSTHOG_API_KEY: z.string().optional(),
     POSTHOG_HOST: z.url().optional(),
+    REMEDIATION_MODEL: z.string().optional(),
     SLACK_CONNECTOR: connectorUid("slack"),
     SLACK_NOTIFY_CHANNEL: slackConversation.optional(),
     SLACK_TEAM_ID: z

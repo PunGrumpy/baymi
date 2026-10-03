@@ -33,10 +33,12 @@ describe("env", () => {
     // their own shell would otherwise fail this run.
     const env = await loadEnv({
       POSTHOG_API_KEY: "",
+      REMEDIATION_MODEL: "",
       SLACK_NOTIFY_CHANNEL: "",
       SLACK_TEAM_ID: "",
     });
     expect(env.POSTHOG_API_KEY).toBeUndefined();
+    expect(env.REMEDIATION_MODEL).toBeUndefined();
     expect(env.SLACK_NOTIFY_CHANNEL).toBeUndefined();
     expect(env.SLACK_TEAM_ID).toBeUndefined();
   });
