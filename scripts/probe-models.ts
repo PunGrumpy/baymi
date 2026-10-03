@@ -77,10 +77,12 @@ const messageSchema = z.object({
     .optional(),
 });
 
-const DIFF = `diff --git a/src/calc.ts b/src/calc.ts
-+export const calculate = (req: Request) => {
-+  const expr = new URL(req.url).searchParams.get("q") ?? "0";
-+  return eval(expr);
+// No `eval()`, `document.cookie` or `document.write`: the AI Pass edge
+// refuses a prompt that carries them before any model runs (`docs/notes.md`).
+const DIFF = `diff --git a/src/users.ts b/src/users.ts
++export const findUser = (db: Db, req: Request) => {
++  const name = new URL(req.url).searchParams.get("name") ?? "";
++  return db.query(\`SELECT * FROM users WHERE name = '\${name}'\`);
 +};`;
 
 const SCENARIOS: Scenario[] = [
