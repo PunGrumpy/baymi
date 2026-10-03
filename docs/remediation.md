@@ -59,7 +59,7 @@ The proposal also had a third check: read the dependency changes again after the
 
 ## Model, cost and limits
 
-- **Model:** the subagent runs on `REMEDIATION_MODEL` when it is set and on the root's `MODEL` otherwise, at the root's effort, through `modelSettings` in `agent/lib/anthropic.ts`. A cheaper model fits because `run_checks` verifies the result, but it must still call tools through the gateway. In the probe, `claude-opus-5@azure` called tools 3 of 3 and `gpt-6-astra` 4 of 4, and `glm-5.3` called them 0 of 2 (`docs/notes.md`).
+- **Model:** the subagent runs on `REMEDIATION_MODEL` when it is set, and on the root's `MODEL` otherwise, at the root's effort (`modelSettings` in `agent/lib/anthropic.ts`). `run_checks` verifies the result, so a cheaper model works, as long as it calls tools through the gateway. In the probe, `claude-opus-5@azure` called tools 3 of 3 and `gpt-6-astra` 4 of 4, and `glm-5.3` called them 0 of 2 (`docs/notes.md`).
 - **Credits:** AI Pass gives this account 10,000 credits a day. Nobody has measured a remediation run yet. Measure one before relying on remediation on a day with many reviews.
 - **Sandbox:** two vCPUs, where the review uses one. Vercel Hobby ends a sandbox session after 45 minutes. `submit_fix` deletes the sandbox once the pull request is open, and the one-day snapshot expiry covers a run that ends any other way.
 

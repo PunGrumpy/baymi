@@ -21,35 +21,13 @@ import { parseArgs } from "node:util";
 
 import { z } from "zod";
 
-const APP = "baymi-model-probe";
-const DEFAULT_ROUNDS = 3;
-
-interface InputSchema {
-  properties: Record<string, { type: "string" }>;
-  required?: string[];
-  type: "object";
-}
-
-interface Tool {
-  description: string;
-  input_schema: InputSchema;
-  name: string;
-}
-
-interface Scenario {
-  name: string;
-  prompt: string;
-  systemFile: string;
-  tools: Tool[];
-}
-
 interface Outcome {
   called: string[];
   error?: string;
   spent?: number;
 }
 
-const stringProps = (...names: string[]): InputSchema => ({
+const stringProps = (...names: string[]) => ({
   properties: Object.fromEntries(
     names.map((name) => [name, { type: "string" as const }])
   ),
@@ -85,11 +63,11 @@ const DIFF = `diff --git a/src/users.ts b/src/users.ts
 +  return db.query(\`SELECT * FROM users WHERE name = '\${name}'\`);
 +};`;
 
-const SCENARIOS: Scenario[] = [
+const SCENARIOS = [
   {
     name: "review",
     prompt: `Review pull request acme/web#12. Its diff:\n\n${DIFF}`,
-    systemFile: "agent/instructions.md",
+    system: await readFile("agent/instructions.md", "utf-8"),
     tools: [
       {
         description: "Load a skill's instructions by name.",
@@ -111,7 +89,10 @@ const SCENARIOS: Scenario[] = [
   {
     name: "remediation",
     prompt: "Fix the vulnerable lodash dependency in acme/web.",
-    systemFile: "agent/subagents/remediation/instructions.md",
+    system: await readFile(
+      "agent/subagents/remediation/instructions.md",
+      "utf-8"
+    ),
     tools: [
       {
         description:
@@ -126,12 +107,14 @@ const SCENARIOS: Scenario[] = [
       },
       {
         description: "Run the install and the project's checks.",
-        input_schema: { properties: {}, type: "object" },
+        input_schema: stringProps(),
         name: "run_checks",
       },
     ],
   },
 ];
+
+type Scenario = (typeof SCENARIOS)[number];
 
 const env = (name: string): string => {
   const value = process.env[name];
@@ -145,7 +128,7 @@ const baseUrl = env("ANTHROPIC_BASE_URL").replace(/\/$/u, "");
 const headers = {
   authorization: `Bearer ${env("ANTHROPIC_API_KEY")}`,
   "content-type": "application/json",
-  "x-thaipass-app": APP,
+  "x-thaipass-app": "baymi-model-probe",
 };
 
 const freeChatModels = async (): Promise<string[]> => {
@@ -159,18 +142,14 @@ const freeChatModels = async (): Promise<string[]> => {
     .map((model) => model.id);
 };
 
-const probe = async (
-  model: string,
-  scenario: Scenario,
-  system: string
-): Promise<Outcome> => {
+const probe = async (model: string, scenario: Scenario): Promise<Outcome> => {
   const response = await fetch(`${baseUrl}/messages`, {
     body: JSON.stringify({
       max_tokens: 4096,
       messages: [{ content: scenario.prompt, role: "user" }],
       model,
       output_config: { effort: "high" },
-      system,
+      system: scenario.system,
       thinking: { budget_tokens: 4096, type: "enabled" },
       tools: scenario.tools,
     }),
@@ -193,7 +172,7 @@ const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
     "allow-paid": { default: false, type: "boolean" },
-    rounds: { default: String(DEFAULT_ROUNDS), type: "string" },
+    rounds: { default: "3", type: "string" },
   },
 });
 
@@ -206,23 +185,13 @@ if (paid.length > 0 && !values["allow-paid"]) {
   );
 }
 
-const systems = new Map<string, string>();
-for (const scenario of SCENARIOS) {
-  // oxlint-disable-next-line eslint/no-await-in-loop -- two small files
-  systems.set(scenario.name, await readFile(scenario.systemFile, "utf-8"));
-}
-
 const results = new Map<string, Outcome[]>();
 const rounds = Number(values.rounds);
 for (let round = 1; round <= rounds; round += 1) {
   for (const scenario of SCENARIOS) {
     for (const model of models) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- one request at a time, interleaved, is the point
-      const outcome = await probe(
-        model,
-        scenario,
-        systems.get(scenario.name) ?? ""
-      );
+      const outcome = await probe(model, scenario);
       const key = `${model}\t${scenario.name}`;
       results.set(key, [...(results.get(key) ?? []), outcome]);
       const verdict = outcome.error

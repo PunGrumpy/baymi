@@ -25,8 +25,8 @@ const DESCRIPTION =
  * turn, and the unattended review turns before it never see it.
  *
  * It runs on `REMEDIATION_MODEL` when that is set, and on the root's `MODEL`
- * otherwise. Its work is mechanical and `run_checks` verifies it, so it can
- * take a cheaper model than the review.
+ * otherwise. `run_checks` verifies its work, so it can run on a cheaper
+ * model than the review.
  */
 const remediationAgent = () =>
   defineAgent({
