@@ -21,11 +21,9 @@ import { parseArgs } from "node:util";
 
 import { z } from "zod";
 
-interface Outcome {
-  called: string[];
-  error?: string;
-  spent?: number;
-}
+type Outcome =
+  | { kind: "answered"; called: string[]; spent: number | undefined }
+  | { kind: "failed"; error: string };
 
 const stringProps = (...names: string[]) => ({
   properties: Object.fromEntries(
@@ -47,7 +45,12 @@ const modelsSchema = z.object({
 });
 
 const messageSchema = z.object({
-  content: z.array(z.object({ name: z.string().optional(), type: z.string() })),
+  content: z.array(
+    z.union([
+      z.object({ name: z.string(), type: z.literal("tool_use") }),
+      z.object({ type: z.string() }),
+    ])
+  ),
   usage: z
     .object({
       credits: z.object({ spent: z.number().optional() }).optional(),
@@ -55,8 +58,9 @@ const messageSchema = z.object({
     .optional(),
 });
 
-// No `eval()`, `document.cookie` or `document.write`: the AI Pass edge
-// refuses a prompt that carries them before any model runs (`docs/notes.md`).
+// The diff avoids `eval()`, `document.cookie` and `document.write`, because
+// the AI Pass edge refuses a prompt that contains them before any model runs
+// (`docs/notes.md`).
 const DIFF = `diff --git a/src/users.ts b/src/users.ts
 +export const findUser = (db: Db, req: Request) => {
 +  const name = new URL(req.url).searchParams.get("name") ?? "";
@@ -142,7 +146,13 @@ const freeChatModels = async (): Promise<string[]> => {
     .map((model) => model.id);
 };
 
-const probe = async (model: string, scenario: Scenario): Promise<Outcome> => {
+const probe = async ({
+  model,
+  scenario,
+}: {
+  model: string;
+  scenario: Scenario;
+}): Promise<Outcome> => {
   const response = await fetch(`${baseUrl}/messages`, {
     body: JSON.stringify({
       max_tokens: 4096,
@@ -157,13 +167,17 @@ const probe = async (model: string, scenario: Scenario): Promise<Outcome> => {
     method: "POST",
   });
   if (!response.ok) {
-    return { called: [], error: `${response.status} ${await response.text()}` };
+    return {
+      error: `${response.status} ${await response.text()}`,
+      kind: "failed",
+    };
   }
   const body = messageSchema.parse(await response.json());
   return {
-    called: body.content
-      .filter((block) => block.type === "tool_use")
-      .map((block) => block.name ?? "?"),
+    called: body.content.flatMap((block) =>
+      "name" in block ? [block.name] : []
+    ),
+    kind: "answered",
     spent: body.usage?.credits?.spent,
   };
 };
@@ -186,17 +200,18 @@ if (paid.length > 0 && !values["allow-paid"]) {
 }
 
 const results = new Map<string, Outcome[]>();
-const rounds = Number(values.rounds);
+const rounds = z.coerce.number().int().positive().parse(values.rounds);
 for (let round = 1; round <= rounds; round += 1) {
   for (const scenario of SCENARIOS) {
     for (const model of models) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- one request at a time, interleaved, is the point
-      const outcome = await probe(model, scenario);
+      const outcome = await probe({ model, scenario });
       const key = `${model}\t${scenario.name}`;
       results.set(key, [...(results.get(key) ?? []), outcome]);
-      const verdict = outcome.error
-        ? `error ${outcome.error.slice(0, 120)}`
-        : `called [${outcome.called.join(", ")}] spent ${outcome.spent ?? "?"}`;
+      const verdict =
+        outcome.kind === "failed"
+          ? `error ${outcome.error.slice(0, 120)}`
+          : `called [${outcome.called.join(", ")}] spent ${outcome.spent ?? "?"}`;
       process.stdout.write(
         `round ${round} ${scenario.name} ${model}: ${verdict}\n`
       );
@@ -206,8 +221,9 @@ for (let round = 1; round <= rounds; round += 1) {
 
 process.stdout.write("\nmodel\tscenario\tcalled\tavg credits\n");
 for (const [key, outcomes] of results) {
-  const called = outcomes.filter((outcome) => outcome.called.length > 0);
-  const spent = outcomes
+  const answered = outcomes.filter((outcome) => outcome.kind === "answered");
+  const called = answered.filter((outcome) => outcome.called.length > 0);
+  const spent = answered
     .map((outcome) => outcome.spent)
     .filter((value) => value !== undefined);
   const average =

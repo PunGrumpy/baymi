@@ -100,12 +100,9 @@ Credits are what limits the choice. AI Pass gives this account 10,000 credits a 
 
 A review sends several requests, and one on 2026-10-02 reached 21 messages. At these prices no paid model fits one review a day. Scaled by the probe prices above, `claude-opus-5@azure` costs about 1,850 credits a request.
 
-Read prices from a probe, not from PostHog averages. Most rows record `creditsSpent` as 0, which pulls every per-model average down. `GET /v1/models` marks one chat model free: `gemini-3.5-flash-lite`. The others that average near 0 in PostHog are paid.
+Read prices from a probe, not from PostHog averages. Most rows record `creditsSpent` as 0, which pulls every per-model average down. `GET /v1/models` marks only `gemini-3.5-flash-lite` as a free chat model, and the others that average near 0 in PostHog are paid.
 
-`scripts/probe-models.ts` sends a first turn shaped like a review and one shaped like remediation, with the real instructions and three tools. Over three rounds, at 0 credits:
-
-- **Review**: `gemini-3.5-flash-lite` called `load_skill` 3 of 3
-- **Remediation**: it called `prepare_checkout` 3 of 3
+`scripts/probe-models.ts` sends a first turn shaped like a review and one shaped like remediation, with the real instructions and three tools. Over three rounds at 0 credits, `gemini-3.5-flash-lite` called `load_skill` on 3 of 3 review turns and `prepare_checkout` on 3 of 3 remediation turns.
 
 That covers the first turn only. Nobody has measured how well it reviews. The probe's first diff contained `eval()`, and the edge refused every review request with a 400 before a model ran. Its diff now uses a SQL injection instead.
 
