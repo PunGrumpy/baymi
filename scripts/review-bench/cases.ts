@@ -78,7 +78,7 @@ export const CASES: readonly BenchCase[] = [
         "+})",
       ]
     ),
-    flaw: /owner|idor|other user|another user|any user|belong|authoriz/iu,
+    flaw: /owner|idor|other user|another user|any user|any invoice|belong|authoriz/iu,
     kind: "planted",
     name: "idor",
     path: "src/routes/invoices.ts",
