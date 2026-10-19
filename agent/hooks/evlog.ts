@@ -7,6 +7,7 @@ import { createPostHogDrain } from "evlog/posthog";
 import type { DrainDestination } from "#lib/drains";
 import { createFanOutDrain } from "#lib/drains";
 import { env } from "#lib/env";
+import { MODEL } from "#lib/model";
 
 /** The PostHog event one turn becomes. */
 export const TURN_EVENT = "baymi_turn";
@@ -64,7 +65,7 @@ const options: EvlogEveOptions = {
     env: { service: "baymi" },
     pretty: !process.env.VERCEL,
   },
-  model: env.MODEL,
+  model: MODEL,
   sessionEvent: true,
 };
 const drain = createFanOutDrain(destinations);

@@ -29,16 +29,14 @@ const slackConversation = z
  * is parsed on first import, so a misconfigured deployment fails discovery
  * with one report naming every problem.
  *
- * `ANTHROPIC_BASE_URL` decides which service answers: the agent speaks the
- * Anthropic wire protocol, but the endpoint need not be Anthropic's own, so
- * `ANTHROPIC_API_KEY` is a plain non-empty string rather than an `sk-` key.
+ * The model needs no variable: it is a gateway id in `#lib/model`, and AI
+ * Gateway takes the deployment's OIDC token.
  *
  * The optional variables are the ones whose absence removes a capability
  * rather than breaking one. Without `SLACK_NOTIFY_CHANNEL` the agent still
  * reviews and still answers; what it cannot do is check in on Slack when a
  * review turns up something serious. Without the PostHog key the turn events
- * still print in `eve dev` and simply have nowhere to go. Without
- * `REMEDIATION_MODEL` the remediation subagent runs on `MODEL`.
+ * still print in `eve dev` and simply have nowhere to go.
  *
  * Each variable is described in `.env.example`.
  */
@@ -46,14 +44,10 @@ export const env = createEnv({
   emptyStringAsUndefined: true,
   runtimeEnv: process.env,
   server: {
-    ANTHROPIC_API_KEY: z.string(),
-    ANTHROPIC_BASE_URL: z.url(),
     GITHUB_CONNECTOR: connectorUid("github"),
     GITHUB_WEBHOOK_SECRET: z.string(),
-    MODEL: z.string(),
     POSTHOG_API_KEY: z.string().optional(),
     POSTHOG_HOST: z.url().optional(),
-    REMEDIATION_MODEL: z.string().optional(),
     SLACK_CONNECTOR: connectorUid("slack"),
     SLACK_NOTIFY_CHANNEL: slackConversation.optional(),
     SLACK_TEAM_ID: z
