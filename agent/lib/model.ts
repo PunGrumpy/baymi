@@ -1,26 +1,12 @@
 /**
- * The effort the agent asks for, named on the request as well as set as
- * `reasoning`.
+ * The model every agent here runs on, named by its AI Gateway id.
  *
  * @remarks
- * `reasoning` on its own does not reach this gateway; it becomes a small
- * thinking budget that resolves to the lowest level, which is what every
- * review ran at until 2026-09-12. `docs/notes.md` has the measurements.
- * `thinking` has to be named alongside the effort, because the SDK builds
- * the thinking block from `reasoning` only while no effort is set, and a
- * request carrying no thinking block runs with no thinking at all.
- *
- * `high` is what the gateway runs. thaipass rounds an Anthropic-protocol
- * `xhigh` down to `high` (`apps/proxy/src/anthropic/schema.ts`), so the
- * `xhigh` this used to name never reached a model. `max` is the one level
- * above it, and it is not set here: AI Pass bills credits per request out of
- * a daily allowance, and a review at `max` spends more of it on thinking.
- * `docs/notes.md` has the measurements.
+ * eve routes a `provider/model` string through Vercel AI Gateway and
+ * authenticates with the deployment's OIDC token, so there is no endpoint or
+ * key to configure. `scripts/review-bench.ts` chose it (`docs/notes.md`): it
+ * found 24 of 24 planted flaws, flagged none of the clean diffs, and calls
+ * tools natively. The gateway's free tier admits it, and most of the
+ * catalog it does not.
  */
-export const EFFORT = "high";
-
-/** What `modelOptions` puts on every request; see {@link EFFORT}. */
-export const ANTHROPIC_OPTIONS = {
-  effort: EFFORT,
-  thinking: { type: "enabled" },
-} as const;
+export const MODEL = "moonshotai/kimi-k2.7-code";

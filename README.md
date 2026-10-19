@@ -59,7 +59,7 @@ Where you install the GitHub App decides what Baymi watches. There is no reposit
 
 - [Bun](https://bun.sh)
 - A Vercel account with the [Vercel CLI](https://vercel.com/docs/cli) authenticated (`vercel login`)
-- An Anthropic API key, or a token for any Anthropic-compatible endpoint you set as `ANTHROPIC_BASE_URL`. A review is one long read over a large diff, so pick a model that reasons well and calls tools reliably
+- Nothing for the model: it runs on [Vercel AI Gateway](https://vercel.com/docs/ai-gateway), which the deployment's OIDC token authenticates. The model is `moonshotai/kimi-k2.7-code`, set in `agent/lib/model.ts`, which the gateway's free tier admits
 
 ## Setup
 
@@ -125,7 +125,9 @@ The webhook surfaces need a deployment to receive events, so drive the agent thr
 env $(grep -v '^#' .env | grep -v '^$' | xargs) bun x eve info
 ```
 
-`bun run validate` typechecks and runs discovery together. `bun run test` covers the logic under `agent/lib/`. `bun run eval` scores the agent against a live model and costs real money.
+`vercel env pull` writes the `VERCEL_OIDC_TOKEN` the gateway needs locally into `.env.local`. It expires, so pull again when the model answers 401.
+
+`bun run validate` typechecks and runs discovery together. `bun run test` covers the logic under `agent/lib/`. `bun run eval` scores the agent against the live model and spends gateway credit. `bun scripts/review-bench.ts <model>...` counts how many planted flaws a model finds, which is how to compare one before changing `agent/lib/model.ts`.
 
 ## Where the code lives
 

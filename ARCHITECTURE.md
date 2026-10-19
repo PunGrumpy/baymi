@@ -5,7 +5,7 @@
 - **Name:** Baymi (`baymi`), a security-minded companion for one person's repositories, built on eve. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
 - **Maintainer:** PunGrumpy
 - **License:** MIT
-- **Last updated:** 2026-10-02
+- **Last updated:** 2026-10-19
 
 ## Overview
 
@@ -52,8 +52,7 @@ agent/
     security-review/        # the review procedure, severity scale, and format; references/checklist.md lists the patterns by kind of change
   lib/                      # the only place logic lives; every module has a colocated *.test.ts
     env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
-    anthropic.ts            # the Anthropic-protocol provider, pointed at ANTHROPIC_BASE_URL, and modelSettings for every agent
-    model.ts                # the effort and the Anthropic options the gateway reads
+    model.ts                # the AI Gateway model id every agent here runs on
     trust.ts                # authorization, expressed once: trusted associations, the reviewer principal, Slack humans
     instructions.ts         # channelName and loadsOnChannel: which fragment a session sees
     sandbox.ts              # releaseSandbox: the GitHub channel deletes a turn's sandbox after the reply posts, to stay inside the Hobby quotas
@@ -103,8 +102,8 @@ docs/
 | Dependency advisories | `agent/tools/list_dependency_changes.ts` + `agent/lib/github/dependencies.ts` | Tool | The agent matches no CVE itself. When the pull request's head has a root `bun.lock` or `package-lock.json`, the tool compares it at the base and the head and asks GitHub's global advisory database about the added versions, each advisory applied through the range that holds the version. GitHub's dependency review is the fallback, because the dependency graph does not parse `bun.lock` and is off on most of these repositories. All of it stays inside GitHub's API with the installation token the agent already holds, so the agent fetches no URL. The review decides from the checkout whether the code reaches the vulnerable function. When neither source answers, the tool says `available: false`, and the review goes on without it |
 | Remediation | `agent/subagents/remediation/` + `agent/lib/remediation/` + `mayRemediate` in `agent/lib/trust.ts` | Subagent (dynamic) | A person asks Baymi to fix a vulnerable package, and the root hands it to `remediation`, a declared subagent with its own tools and sandbox. `prepare_checkout` resolves the task from GitHub in the app runtime: the default branch's head, the versions the SBOM lists, the global advisories against them, and the version that clears them. It writes the archive into the sandbox and the task into durable state. The model bumps the package with lifecycle scripts off. `run_checks` runs the install and the project's checks with fixed commands and records the exit codes with a digest of the change. `submit_fix` pushes a `baymi/` branch through the Git Data API and opens a draft pull request headed verified or unverified mitigation, then deletes the sandbox. The token never enters the sandbox, and the repository and commit come from state, never from the model. `docs/remediation.md` has the design |
 | GitHub access | `agent/extensions/github.ts` + `agent/lib/github/tools.ts` + `agent/lib/github/approval.ts` | Extension | Eleven tools under the `github` namespace: seven reads and four writes. `addIssueComment`, `addPullRequestComment`, and `replyToReviewComment` run uncarded for a trusted person and are refused on an unattended turn; `createIssue` asks on a card. The review itself is not a tool: the channel submits it with a fixed `COMMENT` event, so nothing mounted can approve or request changes, edit a file, label, assign, or close |
-| Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model comes from `MODEL` through `agent/lib/anthropic.ts`, and the remediation subagent uses `REMEDIATION_MODEL` when it is set. Reasoning stays high because a review is one long careful read. The root prompt is always on. Fragments resolve at `session.started` and load only on their own channel, and all of them load on the HTTP route, which exists to exercise the others |
-| Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One `baymi_turn` event per turn: identity, channel, tokens, tools, outcome, never content. The model answers through a gateway of the operator's choosing, so this is the only record of what a week of reviews cost |
+| Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model is the AI Gateway id in `agent/lib/model.ts`, shared with the remediation subagent, and the deployment's OIDC token authenticates it. Reasoning stays high because a review is one long careful read. The root prompt is always on. Fragments resolve at `session.started` and load only on their own channel, and all of them load on the HTTP route, which exists to exercise the others |
+| Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One `baymi_turn` event per turn: identity, channel, tokens, tools, outcome, never content. It is the per-turn record of what reviews cost in tokens; the gateway's own spend report has the dollars |
 
 ## Why it is read-only
 
@@ -112,7 +111,7 @@ The sandbox holds a checkout of whatever pull request last opened, and the pull 
 
 The remediation subagent is the one place with a shell, and it sits outside this agent on purpose. A declared subagent inherits none of the root's tools or sandbox. Its sandbox holds no credential, reaches only the npm registries, and only ever holds the default branch of an installed repository, at a commit resolved from GitHub. The subagent is offered only on a turn a person started, so the review turn that reads a stranger's diff cannot call it. `docs/remediation.md` describes the boundary.
 
-`todo` and the built-in `agent` delegation stay off for a smaller reason: the gateway this agent answers through degrades as the tool list grows (`docs/notes.md`), and a review is one pass with no side quests to track.
+`todo` and the built-in `agent` delegation stay off for a smaller reason: every tool in the prompt costs tokens on every turn (`docs/notes.md`), and a review is one pass with no side quests to track.
 
 ## Data flow
 
@@ -137,7 +136,7 @@ There is no application database.
 | --- | --- | --- |
 | GitHub | Pull request events and mentions in, review comments, replies and one check run out; reads of pull requests, issues, and files | eve GitHub channel + `@github-tools/eve-extension`, both taking their installation token from Vercel Connect (`GITHUB_CONNECTOR`); webhooks bypass Connect and are verified with `GITHUB_WEBHOOK_SECRET` |
 | Slack | DMs, mentions, and thread replies in; replies and check-ins out | eve Slack channel via Vercel Connect (`SLACK_CONNECTOR`); check-ins through `chat.postMessage` with the connector's app token |
-| Anthropic-compatible endpoint | Model access | `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY`, wired in `agent/lib/anthropic.ts` |
+| Vercel AI Gateway | Model access | eve routes the model id in `agent/lib/model.ts` through the gateway, authenticated with the deployment's OIDC token |
 | Vercel Blob | Memory | eve's `fileMemory()` |
 | PostHog (optional) | Turn telemetry | `evlog/posthog` drain, `POSTHOG_API_KEY` |
 

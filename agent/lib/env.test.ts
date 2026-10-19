@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const VALID_ENV = {
-  ANTHROPIC_API_KEY: "test-token",
-  ANTHROPIC_BASE_URL: "https://api.anthropic.com/v1",
   GITHUB_CONNECTOR: "github/baymi",
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
-  MODEL: "test-model",
   SLACK_CONNECTOR: "slack/baymi",
 };
 
@@ -33,12 +30,10 @@ describe("env", () => {
     // their own shell would otherwise fail this run.
     const env = await loadEnv({
       POSTHOG_API_KEY: "",
-      REMEDIATION_MODEL: "",
       SLACK_NOTIFY_CHANNEL: "",
       SLACK_TEAM_ID: "",
     });
     expect(env.POSTHOG_API_KEY).toBeUndefined();
-    expect(env.REMEDIATION_MODEL).toBeUndefined();
     expect(env.SLACK_NOTIFY_CHANNEL).toBeUndefined();
     expect(env.SLACK_TEAM_ID).toBeUndefined();
   });
@@ -56,15 +51,6 @@ describe("env", () => {
     await expect(
       loadEnv({ SLACK_NOTIFY_CHANNEL: "#security" })
     ).rejects.toThrow("Invalid environment variables");
-  });
-
-  it("takes the model endpoint as given, with no provider prefix assumed", async () => {
-    const env = await loadEnv({
-      ANTHROPIC_BASE_URL: "https://gateway.example.test/anthropic/v1",
-    });
-    expect(env.ANTHROPIC_BASE_URL).toBe(
-      "https://gateway.example.test/anthropic/v1"
-    );
   });
 
   it("checks a connector UID against its provider", async () => {

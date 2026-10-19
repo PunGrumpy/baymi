@@ -5,9 +5,10 @@
  * A review is reasoning over code the agent read, and the diff in context
  * is a truncated summary, so a turn that answers without a single tool call
  * has seen a fragment of the change and none of the code around it. The
- * gateway's tool-call emulation produces exactly that turn; `docs/notes.md`
- * records how, and the four reviews on 2026-09-11 that ran this way, three
- * of which reported nothing needing attention.
+ * proxy the agent ran on until 2026-10-19 produced exactly that turn with
+ * its tool-call emulation, and three of four reviews that ran this way on
+ * 2026-09-11 reported nothing needing attention. A model can still answer
+ * without reading, so the guard stays (`docs/notes.md`).
  *
  * Two signals attest that the loop ran and {@link mayPostReview} accepts
  * either, because each can go missing on its own. `action.result` arrives

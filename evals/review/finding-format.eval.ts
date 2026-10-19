@@ -17,16 +17,15 @@ const DIFF = [
 
 export default defineEval({
   description:
-    "Loads the review skill and writes a finding with a file, a line, the attacker's move, and a fix.",
+    "Loads the review skill and reports the missing requireAdmin as one high or critical finding on admin.ts, in the format the channel parses.",
   tags: ["fast"],
   async test(t) {
     const turn = await t.send(DIFF);
     t.succeeded();
     t.loadedSkill("security-review");
-    t.check(turn.message, includes(/security review/iu));
-    t.check(turn.message, includes(/admin\.ts/u));
-    t.judge(
-      "The response reports that the new POST route lacks the requireAdmin middleware its sibling route has, so any caller can change any user's role, and rates it high or critical. It names the file, says what an attacker does, why the code allows it, and what closes it. It does not comment on style."
-    ).atLeast(0.7);
+    t.check(turn.message, includes(/^Security review: 1 finding/u));
+    t.check(turn.message, includes(/^### (?:Critical|High) · /mu));
+    t.check(turn.message, includes(/^File: `?src\/routes\/admin\.ts/mu));
+    t.check(turn.message, includes(/requireAdmin/u));
   },
 });
