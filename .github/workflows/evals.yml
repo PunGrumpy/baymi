@@ -39,7 +39,7 @@ jobs:
       GITHUB_CONNECTOR: ${{ vars.GITHUB_CONNECTOR }}
       GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
       SLACK_CONNECTOR: ${{ vars.SLACK_CONNECTOR }}
-      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+      TYPESAFE_AI_API_KEY: ${{ secrets.TYPESAFE_AI_API_KEY }}
     steps:
       - uses: actions/checkout@v7
 
@@ -62,7 +62,7 @@ jobs:
         run: |
           missing=""
           [ -z "$AI_GATEWAY_API_KEY" ] && missing="AI_GATEWAY_API_KEY"
-          [ -z "$TYPESAFE_API_KEY" ] && missing="${missing:+$missing or }TYPESAFE_API_KEY"
+          [ -z "$TYPESAFE_AI_API_KEY" ] && missing="${missing:+$missing or }TYPESAFE_AI_API_KEY"
           if [ -n "$missing" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Evals skipped::This repository has no $missing secret, so the suite cannot run."
