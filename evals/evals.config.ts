@@ -13,11 +13,12 @@ import { jev } from "./lib/typesafe";
  * different family than the agent's model, so it does not share the agent's
  * blind spots.
  *
- * `maxConcurrency` is the default for a whole run. Pass
- * `--max-concurrency 1` when the run is a measurement rather than a check;
- * concurrency is the confound that invalidated two earlier comparisons.
+ * `maxConcurrency` is 1 because the gateway's free tier allows 5 requests a
+ * minute, and four evals at once reached it. One at a time is also what a
+ * measurement needs: concurrency is the confound that invalidated two
+ * earlier comparisons.
  */
 export default defineEvalConfig({
   judge: { model: jev() },
-  maxConcurrency: 4,
+  maxConcurrency: 1,
 });
