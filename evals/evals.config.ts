@@ -1,21 +1,23 @@
+import { typeSafeAi } from "@ai-sdk/typesafe-ai";
 import { defineEvalConfig } from "eve/evals";
 
 /**
- * The judge is `convaiinnovations/laya-free`, an evaluation model the AI
- * Gateway free tier admits.
+ * The judge is TypeSafe's Jev, eve's default evaluator, called on
+ * TypeSafe's API with `TYPESAFE_AI_API_KEY` instead of through AI Gateway.
  *
  * @remarks
- * eve's default judge, `typesafe-ai/jev`, answers "Free tier users do not
- * have access to this model" on this account (`docs/notes.md`). The judge
- * has to be an evaluation model, not a language model id, and laya is from
- * a different family than the agent's model, so it does not share the
- * agent's blind spots.
+ * The AI Gateway free tier refuses `typesafe-ai/jev`, and the free
+ * evaluation model it admits, `convaiinnovations/laya-free`, scored correct
+ * replies below the threshold (`docs/notes.md`). Jev is from a different
+ * family than the agent's model, so it does not share the agent's blind
+ * spots.
  *
- * `maxConcurrency` is the default for a whole run. Pass
- * `--max-concurrency 1` when the run is a measurement rather than a check;
- * concurrency is the confound that invalidated two earlier comparisons.
+ * `maxConcurrency` is 1 because the gateway's free tier allows 5 requests a
+ * minute, and four evals at once reached it. One at a time is also what a
+ * measurement needs: concurrency is the confound that invalidated two
+ * earlier comparisons.
  */
 export default defineEvalConfig({
-  judge: { model: "convaiinnovations/laya-free" },
-  maxConcurrency: 4,
+  judge: { model: typeSafeAi.evaluationModel("jev-latest") },
+  maxConcurrency: 1,
 });

@@ -19,6 +19,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@ai-sdk/typesafe-ai": "3.0.4",
     "@github-tools/eve-extension": "0.7.2",
     "@t3-oss/env-core": "^0.13.11",
     "@vercel/connect": "2.0.4",
