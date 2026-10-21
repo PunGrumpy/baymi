@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CheckTarget, GitHubRequest } from "#lib/github/checks";
 import {
   CHECK_NAME,
+  currentHeadSha,
   failedOutcome,
   openCheckRun,
   reviewOutcome,
@@ -171,5 +172,31 @@ describe(settleCheckRun, () => {
     const result = await settleCheckRun({ now, outcome, request, target });
     expect(result.ok).toBeFalsy();
     expect(result.ok === false && result.error).toContain("422");
+  });
+});
+
+describe(currentHeadSha, () => {
+  const pullRequest = { owner: "acme", pullRequestNumber: 7, repo: "widgets" };
+
+  it("reads the head the pull request has now", async () => {
+    const request = vi
+      .fn<GitHubRequest>()
+      .mockResolvedValue({ body: { head: { sha: "def456" } } });
+    await expect(currentHeadSha({ ...pullRequest, request })).resolves.toBe(
+      "def456"
+    );
+    expect(request).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/repos/acme/widgets/pulls/7",
+    });
+  });
+
+  it("answers null when GitHub refuses, so the caller keeps what it had", async () => {
+    const request = vi
+      .fn<GitHubRequest>()
+      .mockRejectedValue(new Error("404 Not Found"));
+    await expect(
+      currentHeadSha({ ...pullRequest, request })
+    ).resolves.toBeNull();
   });
 });

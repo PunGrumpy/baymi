@@ -51,6 +51,8 @@ const CHECK_RUNS = z.object({
   check_runs: z.array(z.object({ id: z.number().int() })),
 });
 
+const PULL_REQUEST_HEAD = z.object({ head: z.object({ sha: z.string() }) });
+
 const findingCount = (count: number): string =>
   count === 1 ? "1 finding" : `${count} findings`;
 
@@ -179,5 +181,32 @@ export const settleCheckRun = async (input: {
     return { ok: true };
   } catch (error) {
     return { error: `check run not settled: ${String(error)}`, ok: false };
+  }
+};
+
+/**
+ * The head the pull request has now, or `null` when GitHub will not say.
+ *
+ * @remarks
+ * `channel.state.headSha` is not it after a push: eve keeps a session's state
+ * from its first dispatch, and the built-in checkout writes back the sha it
+ * was given. A follow-up review then settled the first commit's run again and
+ * left the run `onPullRequest` opened on the new head in progress for good.
+ */
+export const currentHeadSha = async (input: {
+  readonly owner: string;
+  readonly pullRequestNumber: number;
+  readonly repo: string;
+  readonly request: GitHubRequest;
+}): Promise<string | null> => {
+  const { owner, pullRequestNumber, repo, request } = input;
+  try {
+    const { body } = await request({
+      method: "GET",
+      path: `/repos/${owner}/${repo}/pulls/${pullRequestNumber}`,
+    });
+    return PULL_REQUEST_HEAD.parse(body).head.sha;
+  } catch {
+    return null;
   }
 };

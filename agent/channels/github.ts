@@ -18,6 +18,7 @@ import type {
   GitHubRequest,
 } from "#lib/github/checks";
 import {
+  currentHeadSha,
   failedOutcome,
   openCheckRun,
   reviewOutcome,
@@ -66,6 +67,27 @@ const asRequest =
   (github: GitHubHandle): GitHubRequest =>
   (input) =>
     github.request(input);
+
+/**
+ * Points `channel.state.headSha` at the pull request's head as it is now, so
+ * the check run, the review's `commit_id` and the summary all name the commit
+ * the push brought rather than the session's first one.
+ */
+const refreshHeadSha = async (channel: GitHubEventContext): Promise<void> => {
+  const { owner, pullRequestNumber, repo } = channel.state;
+  if (pullRequestNumber === null) {
+    return;
+  }
+  const headSha = await currentHeadSha({
+    owner,
+    pullRequestNumber,
+    repo,
+    request: asRequest(channel.github),
+  });
+  if (headSha !== null) {
+    channel.state.headSha = headSha;
+  }
+};
 
 /** Only an unattended review reaches here: nothing else opened a row. */
 const settleCheck = async (
@@ -384,6 +406,7 @@ export default githubChannel({
         return;
       }
       try {
+        await refreshHeadSha(channel);
         await settleReply(channel, ctx, {
           message: event.message,
           step: event.stepIndex,
@@ -399,6 +422,7 @@ export default githubChannel({
     async "session.failed"(event, channel) {
       logFailure("session", event);
       if (isUnattendedReviewState(channel.state)) {
+        await refreshHeadSha(channel);
         await settleCheck(channel, failedOutcome(event.code));
         await reportFailedReview(channel, event);
         return;
