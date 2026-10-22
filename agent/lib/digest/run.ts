@@ -6,7 +6,6 @@ import type {
   PullRequestFacts,
   Verdict,
 } from "#lib/digest/classify";
-import { digestKey } from "#lib/digest/key";
 import { renderDigest } from "#lib/digest/render";
 import {
   bangkokDate,
@@ -25,6 +24,13 @@ import { isApp } from "#lib/trust";
  * against fakes, including the case that matters: the same data twice posts
  * once. Nothing here writes to GitHub or to memory. The only side effect is
  * the Slack post, and it is the last step.
+ *
+ * The key a post is recorded under is the Bangkok date and nothing else. On a
+ * Hobby plan the cron fires once a day, so a second run on the same day is a
+ * redelivery or a manual run, and neither should post again because a pull
+ * request changed bucket in between: the digest is a morning snapshot, not a
+ * feed. A key that hashed the classified set let exactly that redelivery post
+ * twice (a pull request opened between two runs changed the hash).
  */
 
 /** The `event_type` a digest post is tagged with in Slack. */
@@ -77,14 +83,16 @@ const countBuckets = (entries: readonly Classified[]): BucketCounts => ({
 });
 
 /**
- * Builds today's digest and posts it unless this exact one is already out.
+ * Builds today's digest and posts it unless today's is already out.
  *
  * @remarks
  * Refuses to run as anyone but the app, so a route that somehow reached this
  * code as a person or the reviewer does nothing. The order is: read the
- * pull requests, classify them, compute the key, look for it, and only then
- * post. The duplicate check comes after the GitHub read because the key
- * hashes what was read; a run that already posted costs one search.
+ * pull requests, classify them, look for today's key, and only then post. The
+ * look comes after the GitHub read, right before the post, so two deliveries
+ * a few seconds apart still find each other: the later one spends the seconds
+ * of its read and then sees the earlier one's post. Slack has no
+ * compare-and-set, so two that start together can still both post.
  */
 export const runDigest = async (
   deps: DigestDeps,
@@ -102,7 +110,7 @@ export const runDigest = async (
     digestQuery({ now, owners })
   );
   const entries = classifyAll(facts, { owners });
-  const key = digestKey(bangkokDate(now), entries);
+  const key = bangkokDate(now);
   if (await deps.alreadyPosted(key, bangkokDayStart(now))) {
     return { key, status: "duplicate" };
   }

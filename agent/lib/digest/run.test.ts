@@ -94,15 +94,12 @@ describe(runDigest, () => {
     expect(deps.post).toHaveBeenCalledOnce();
   });
 
-  it("gives the second run the same key as the first", async () => {
+  it("keys the digest on the Bangkok date alone", async () => {
     const { deps } = fakes();
     const first = await runDigest(deps, APP_AUTH);
     const second = await runDigest(deps, APP_AUTH);
-    expect(first.status).toBe("posted");
-    expect(first).toMatchObject({
-      key: expect.stringMatching(/^2026-10-23:/u),
-    });
-    expect(second).toMatchObject({ key: "key" in first ? first.key : "" });
+    expect(first).toMatchObject({ key: "2026-10-23", status: "posted" });
+    expect(second).toStrictEqual({ key: "2026-10-23", status: "duplicate" });
   });
 
   it("looks for the key from midnight in Bangkok", async () => {
@@ -114,16 +111,39 @@ describe(runDigest, () => {
     );
   });
 
-  it("posts again when the set changed, which is a different digest", async () => {
+  it("posts nothing on a redelivery even when the pull requests changed since", async () => {
     const { deps, posted } = fakes([green(1)]);
     await runDigest(deps, APP_AUTH);
     deps.listOpenPullRequests.mockResolvedValueOnce({
-      facts: [green(1), green(2)],
+      facts: [green(1), green(2), { ...green(3), conflicting: true }],
       truncated: false,
     });
     const second = await runDigest(deps, APP_AUTH);
-    expect(second.status).toBe("posted");
-    expect(posted).toHaveLength(2);
+    expect(second.status).toBe("duplicate");
+    expect(posted).toHaveLength(1);
+  });
+
+  it("posts again the next Bangkok day", async () => {
+    const { deps, posted } = fakes([green(1)]);
+    await runDigest(deps, APP_AUTH);
+    const nextMorning = new Date("2026-10-26T01:00:00.000Z");
+    const second = await runDigest(
+      { ...deps, now: () => nextMorning },
+      APP_AUTH
+    );
+    expect(second).toMatchObject({ key: "2026-10-26", status: "posted" });
+    expect(posted.map(({ key }) => key)).toStrictEqual([
+      "2026-10-23",
+      "2026-10-26",
+    ]);
+  });
+
+  it("counts the Bangkok date, not the UTC one, at the day's edge", async () => {
+    const { deps, posted } = fakes([green(1)]);
+    // 17:30 UTC on the 22nd is 00:30 on the 23rd in Bangkok.
+    const lateEvening = new Date("2026-10-22T17:30:00.000Z");
+    await runDigest({ ...deps, now: () => lateEvening }, APP_AUTH);
+    expect(posted.map(({ key }) => key)).toStrictEqual(["2026-10-23"]);
   });
 
   it("says so, once, on a day with no pull requests", async () => {
