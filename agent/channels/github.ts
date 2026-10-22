@@ -302,14 +302,14 @@ const postReply = async (
   channel: GitHubEventContext,
   message: string,
   parsed: ParsedReview | null,
-  unattended: boolean
+  reviewing: boolean
 ): Promise<void> => {
   const { pullRequestNumber } = channel.state;
   if (parsed === null || pullRequestNumber === null) {
     await postComment(channel, message);
     return;
   }
-  if (unattended) {
+  if (reviewing) {
     await postUnattendedReview(channel, message, parsed, pullRequestNumber);
     return;
   }
@@ -334,13 +334,13 @@ const settleReply = async (
     readonly turnId: string;
   }
 ): Promise<void> => {
-  const unattended = isReviewer(ctx.session.auth.current);
+  const reviewing = isReviewer(ctx.session.auth.current);
   const parsed = parseReview(reply.message);
   const holdBack = whyToHoldBack({
     grounded: grounding.isGrounded(reply.turnId),
     parsed: parsed !== null,
     step: reply.step,
-    unattended,
+    unattended: reviewing,
   });
   if (holdBack !== null) {
     if (grounding.reportOnce(reply.turnId)) {
@@ -350,8 +350,8 @@ const settleReply = async (
     }
     return;
   }
-  await postReply(channel, reply.message, parsed, unattended);
-  if (unattended && parsed !== null) {
+  await postReply(channel, reply.message, parsed, reviewing);
+  if (reviewing && parsed !== null) {
     await settleCheck(channel, reviewOutcome(parsed));
   }
 };

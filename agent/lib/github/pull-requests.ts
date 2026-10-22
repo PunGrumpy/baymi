@@ -86,7 +86,7 @@ export const followUpContext = (
  *
  * @remarks
  * `session.failed` runs outside session context and receives no auth, so
- * `isUnattended` is unavailable exactly where it matters most. The shape of
+ * `isReviewer` is unavailable exactly where it matters most. The shape of
  * the state answers instead: a review is the only dispatch that starts from
  * a pull request event rather than from a comment, so it is the only one
  * anchored to a pull request with no triggering comment behind it.
