@@ -9,7 +9,9 @@ import {
   isReviewer,
   isSlackHuman,
   isTrustedGitHubAssociation,
+  isLocalDev,
   isUnattended,
+  mayChase,
   mayRemediate,
   memoryAccess,
   REVIEWER_PRINCIPAL,
@@ -333,5 +335,38 @@ describe(isSlackHuman, () => {
         auth({ authenticator: "github-webhook", principalId: "github:42" })
       )
     ).toBeFalsy();
+  });
+});
+
+describe(mayChase, () => {
+  const CHASE = {
+    app: true,
+    collaborator: false,
+    maintainer: true,
+    reviewer: false,
+    stranger: false,
+  } as const satisfies Record<TrustClass, boolean>;
+
+  it("admits the app and the maintainer, and no other class", () => {
+    for (const trustClass of TRUST_CLASSES) {
+      expect(mayChase(FIXTURES[trustClass])).toBe(CHASE[trustClass]);
+    }
+    expect(mayChase(null)).toBeFalsy();
+  });
+
+  it("refuses the terminal, which is the maintainer for everything else", () => {
+    const terminal = auth({
+      authenticator: "local-dev",
+      principalId: "local-dev",
+      principalType: "local-dev",
+    });
+    expect(classifyPrincipal(terminal)).toBe("maintainer");
+    expect(isLocalDev(terminal)).toBeTruthy();
+    expect(mayChase(terminal)).toBeFalsy();
+  });
+
+  it("admits a person on Slack only in the pinned workspace", () => {
+    expect(mayChase(auth({}), { slackTeamId: "T0AAAAAAA" })).toBeTruthy();
+    expect(mayChase(auth({}), { slackTeamId: "T0ZZZZZZZ" })).toBeFalsy();
   });
 });
