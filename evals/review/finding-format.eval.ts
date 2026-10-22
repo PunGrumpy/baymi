@@ -1,5 +1,7 @@
 import { defineEval } from "eve/evals";
-import { includes } from "eve/evals/expect";
+import { includes, satisfies } from "eve/evals/expect";
+
+import { hasParsedFinding } from "./reply";
 
 const DIFF = [
   "Review this pull request diff for security issues.",
@@ -27,5 +29,15 @@ export default defineEval({
     t.check(turn.message, includes(/^### (?:Critical|High) · /mu));
     t.check(turn.message, includes(/^File: `?src\/routes\/admin\.ts/mu));
     t.check(turn.message, includes(/requireAdmin/u));
+    // The patterns above read the shape; this reads it the way the channel
+    // does, so a reply the channel could not place on a line fails here.
+    t.check(
+      turn.message,
+      satisfies<string | undefined>(
+        (reply) =>
+          hasParsedFinding(reply, "src/routes/admin.ts", ["critical", "high"]),
+        "parses through the channel's parseReview into an inline finding on src/routes/admin.ts"
+      )
+    );
   },
 });
