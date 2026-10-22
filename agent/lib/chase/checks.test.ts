@@ -8,7 +8,7 @@ import {
   readScripts,
   tail,
   verdict,
-} from "#lib/remediation/checks";
+} from "#lib/chase/checks";
 
 describe(detectPackageManager, () => {
   it("names the manager whose lockfile is at the root", () => {

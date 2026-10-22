@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { GitHubSend } from "#lib/remediation/commit";
-import { branchName, pushDraftPullRequest } from "#lib/remediation/commit";
+import type { GitHubSend } from "#lib/chase/commit";
+import { branchName, pushDraftPullRequest } from "#lib/chase/commit";
 
 const reply = <T>(status: number, body: T) => Promise.resolve({ body, status });
 

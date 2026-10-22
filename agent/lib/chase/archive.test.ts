@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ArchiveFetch } from "#lib/remediation/archive";
-import { downloadArchive, MAX_ARCHIVE_BYTES } from "#lib/remediation/archive";
+import type { ArchiveFetch } from "#lib/chase/archive";
+import { downloadArchive, MAX_ARCHIVE_BYTES } from "#lib/chase/archive";
 
 const response = (bytes: number, declared?: number, status = 200) => ({
   arrayBuffer: () => Promise.resolve(new ArrayBuffer(bytes)),

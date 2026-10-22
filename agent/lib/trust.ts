@@ -275,37 +275,6 @@ export const memoryAccess = (
 ): MemoryAccess => MEMORY_ACCESS[classifyPrincipal(auth, context)];
 
 /**
- * Whether this turn may start a remediation: a person asked, in a session
- * that is not an unattended one.
- *
- * @remarks
- * Remediation opens a pull request with code the sandbox changed, so it is
- * the one capability that writes to a repository. A person has to have asked
- * for it on this turn. The channels admit only trusted people to a session
- * at all (`shouldDispatchComment`, `isSlackHuman`), and this keeps out the
- * constructed reviewer principal, the app, and any service caller on top of
- * that. A diff can never start one, because the review turn reading it has no
- * remediation tool to call.
- *
- * The operator's own terminal is the maintainer for memory and instructions
- * but is refused here, as it always was: `eve eval` runs as `local-dev`, and
- * an eval session must not be offered a subagent that opens a real pull
- * request.
- *
- * The app is refused today. It runs unattended on text strangers wrote, with
- * nobody to ask, so a remediation it started would open a pull request on a
- * log line's say-so. Opening it for a CI failure the app itself found is
- * unit C1's decision, and is a change to this predicate.
- */
-export const mayRemediate = (auth: SessionAuthContext | null): boolean => {
-  if (auth === null || isLocalDev(auth)) {
-    return false;
-  }
-  const trustClass = classifyPrincipal(auth);
-  return trustClass === "maintainer" || trustClass === "collaborator";
-};
-
-/**
  * Who may start a chase, by class. Exhaustive over `TrustClass`, so a new
  * class does not compile without a row.
  *

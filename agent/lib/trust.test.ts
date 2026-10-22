@@ -12,7 +12,6 @@ import {
   isLocalDev,
   isUnattended,
   mayChase,
-  mayRemediate,
   memoryAccess,
   REVIEWER_PRINCIPAL,
   TRUST_CLASSES,
@@ -272,37 +271,6 @@ describe(memoryAccess, () => {
   it("counts the Slack pin, so a guest from another workspace gets none", () => {
     expect(memoryAccess(auth({}), { slackTeamId: "T0AAAAAAA" })).toBe("write");
     expect(memoryAccess(auth({}), { slackTeamId: "T0ZZZZZZZ" })).toBe("none");
-  });
-});
-
-describe(mayRemediate, () => {
-  it("admits a person, whoever asks", () => {
-    expect(mayRemediate(FIXTURES.maintainer)).toBeTruthy();
-    expect(mayRemediate(FIXTURES.collaborator)).toBeTruthy();
-  });
-
-  it("refuses the reviewer, the app, a service, or nobody", () => {
-    expect(mayRemediate(FIXTURES.reviewer)).toBeFalsy();
-    expect(mayRemediate(FIXTURES.app)).toBeFalsy();
-    expect(mayRemediate(FIXTURES.stranger)).toBeFalsy();
-    expect(
-      mayRemediate(auth({ principalId: "eve:evals", principalType: "service" }))
-    ).toBeFalsy();
-    expect(mayRemediate(null)).toBeFalsy();
-  });
-
-  it("still admits a person on Slack", () => {
-    expect(mayRemediate(auth({}))).toBeTruthy();
-  });
-
-  it("refuses the operator's terminal, which is also where evals run", () => {
-    const localDev = auth({
-      authenticator: "local-dev",
-      principalId: "local-dev",
-      principalType: "local-dev",
-    });
-    expect(classifyPrincipal(localDev)).toBe("maintainer");
-    expect(mayRemediate(localDev)).toBeFalsy();
   });
 });
 

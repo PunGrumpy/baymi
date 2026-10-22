@@ -5,7 +5,7 @@ import {
   CHANGES_COMMAND,
   isPushablePath,
   parseModes,
-} from "#lib/remediation/workspace";
+} from "#lib/chase/workspace";
 
 describe(parseModes, () => {
   it("keeps the executable bit and treats every other mode as a regular file", () => {
