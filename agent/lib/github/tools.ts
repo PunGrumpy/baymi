@@ -12,11 +12,11 @@ import { classifyPrincipal } from "#lib/trust";
  *
  * @remarks
  * Every tool here is in the prompt on every turn that is offered it, whatever
- * the turn is about, and the gateway this agent answers through degrades as
- * the tool list grows (`docs/notes.md`). So the list is what the procedures
- * actually use. On a GitHub turn the repository is checked out in the
- * sandbox, and `read_file`, `glob` and `grep` cover the code; these tools are
- * for what the checkout does not hold (the pull request itself, another pull
+ * the turn is about, and every one is paid for in tokens on every model call
+ * (`docs/notes.md`). So the list is what the procedures actually use. On a
+ * GitHub turn the repository is checked out in the sandbox, and `read_file`,
+ * `glob` and `grep` cover the code; these tools are for what the checkout
+ * does not hold (the pull request itself, another pull
  * request, an issue) and for Slack, where there is no checkout.
  *
  * The CI tools are here for the engineering-lead role: find the maintainer's

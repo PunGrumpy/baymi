@@ -6,7 +6,7 @@ Use this order when adding a capability. Each step is cheaper than the one below
 
 1. **A skill** (`agent/skills/<id>/SKILL.md`) when the model already has the tools and only needs a procedure. No code, and it costs nothing until the model loads it. `security-review` and `engineering-lead` are this.
 2. **An instruction fragment** (`agent/instructions/<name>.ts`) when a rule applies on one channel or one kind of turn and has to be in context without being asked for. `review.ts` is this: it loads only on review turns.
-3. **A tool** (`agent/tools/`) only when the operation needs Baymi-side logic: credential brokering, a gate, or shaping a response the model should not see raw. `list_installed_repositories` and `notify_maintainer` are that. Before adding one, count: the gateway degrades as the tool list grows (`docs/notes.md`).
+3. **A tool** (`agent/tools/`) only when the operation needs Baymi-side logic: credential brokering, a gate, or shaping a response the model should not see raw. `list_installed_repositories` and `notify_maintainer` are that. Before adding one, count: every tool is priced into every turn (`docs/notes.md`).
 4. **A memory slot** (`agent/memory/`) when something has to outlive a session. There is one, and it is the maintainer's; a second scope is a design decision, not a file.
 5. **A channel hook** (`agent/channels/`) when the agent should act on an event nobody typed. `onPullRequest` is the only one, and it is deliberately narrow.
 6. **A schedule** (`agent/schedules/`) only for something the maintainer asked to receive on a clock. `digest.ts` is that: the standing orders ask for a digest every weekday morning.

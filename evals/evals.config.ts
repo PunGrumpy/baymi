@@ -12,10 +12,12 @@ import { defineEvalConfig } from "eve/evals";
  * family than the agent's model, so it does not share the agent's blind
  * spots.
  *
- * `maxConcurrency` is 1 because the gateway's free tier allows 5 requests a
- * minute, and four evals at once reached it. One at a time is also what a
- * measurement needs: concurrency is the confound that invalidated two
- * earlier comparisons.
+ * `maxConcurrency` is 1 because one at a time is what a measurement needs:
+ * concurrency is the confound that invalidated two earlier comparisons
+ * (`docs/notes.md`). It also began as a rate limit, the gateway free tier's 5
+ * requests a minute, which four evals at once reached when the lead ran
+ * there. The lead no longer goes through the gateway, so that limit is not
+ * why it stays 1.
  *
  * Two tags: `fast` is on every eval, which is what the workflow runs, and
  * `lead` marks the ones that pin what the engineering lead does (quiet when

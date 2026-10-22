@@ -130,7 +130,7 @@ env $(grep -v '^#' .env | grep -v '^$' | xargs) bun x eve info
 
 The root's model needs only `ANTHROPIC_API_KEY`. `vercel env pull` writes the `VERCEL_OIDC_TOKEN` that the remediation subagent's gateway model, Vercel Blob and Vercel Sandbox need into `.env.local`. It expires, so pull again when one of them answers 401.
 
-`bun run validate` typechecks and runs discovery together. `bun run test` covers the logic under `agent/lib/`. `bun run eval` scores the agent against the live model and spends Anthropic credit: every eval is tagged `fast`, and `--tag lead` runs only the ones that pin the engineering lead (quiet when healthy, never merges, Thai to the owner, a memory round trip). `bun scripts/review-bench.ts <model>...` counts how many planted flaws a model finds, which is how to compare one before changing `agent/lib/model.ts`.
+`bun run validate` typechecks and runs discovery together. `bun run test` covers the logic under `agent/lib/`. `bun run eval` scores the agent against the live model and spends Anthropic credit: every eval is tagged `fast`, and `--tag lead` runs only the ones that pin the engineering lead (quiet when healthy, never merges, Thai to the owner, a memory round trip). `bun scripts/review-bench.ts <model>...` counts how many planted flaws a gateway model finds, one request per case with no tools. It calls only AI Gateway, so it cannot measure the lead, which `agent/lib/model.ts` calls on Anthropic directly; `eve eval review/finding-format` against a dev server measures that.
 
 ## Where the code lives
 
