@@ -4,8 +4,8 @@ Baymi is one agent for one person: their repositories, their Slack workspace. Th
 
 Use this order when adding a capability. Each step is cheaper than the one below it, so stop at the first that does the job.
 
-1. **A skill** (`agent/skills/<id>/SKILL.md`) when the model already has the tools and only needs a procedure. No code, and it costs nothing until the model loads it. `security-review` is this.
-2. **An instruction fragment** (`agent/instructions/<name>.ts`) when a rule applies on one channel or one kind of turn and has to be in context without being asked for. `review.ts` is this: it loads only on unattended turns.
+1. **A skill** (`agent/skills/<id>/SKILL.md`) when the model already has the tools and only needs a procedure. No code, and it costs nothing until the model loads it. `security-review` and `engineering-lead` are this.
+2. **An instruction fragment** (`agent/instructions/<name>.ts`) when a rule applies on one channel or one kind of turn and has to be in context without being asked for. `review.ts` is this: it loads only on review turns.
 3. **A tool** (`agent/tools/`) only when the operation needs Baymi-side logic: credential brokering, a gate, or shaping a response the model should not see raw. `list_installed_repositories` and `notify_maintainer` are that. Before adding one, count: the gateway degrades as the tool list grows (`docs/notes.md`).
 4. **A memory slot** (`agent/memory/`) when something has to outlive a session. There is one, and it is the maintainer's; a second scope is a design decision, not a file.
 5. **A channel hook** (`agent/channels/`) when the agent should act on an event nobody typed. `onPullRequest` is the only one, and it is deliberately narrow.
@@ -30,7 +30,7 @@ The remediation subagent is how that decision was changed once, and it is the pa
 
 ## Instructions
 
-`agent/instructions.md` holds only what every session needs: identity, voice, the read-only posture, and the grounding rules. Anything that only applies on one channel is a fragment in `agent/instructions/<channel>.ts`, gated by `loadsOnChannel` from `agent/lib/instructions.ts`; anything that only applies on review turns is gated by `isReviewer`, and anything that holds for every unattended turn (the review, and the app on its own clock) by `isUnattended`.
+`agent/instructions.md` holds only what every session needs: identity, voice, the read-only posture, and the grounding rules. Anything that only applies on one channel is a fragment in `agent/instructions/<channel>.ts`, gated by `loadsOnChannel` from `agent/lib/instructions.ts`; anything that only applies on review turns is gated by `isReviewer`, and anything that holds for every unattended turn (the review, and the app on its own clock) by `isUnattended`. A rule that applies on every turn but the review, like the engineering lead's orders in `agent/instructions/lead.ts`, is gated by `loadsLeadOrders` (the inverse of `isReviewer`) at `turn.started`, not `session.started`, because a mention from the maintainer continues the session a review opened. It is not the inverse of `isUnattended`: the app's scheduled digest is unattended too, and it is the turn that needs the orders most.
 
 When a section you are about to add to the root file starts with "in Slack" or "when reviewing", it is a fragment. When a procedure is long, optional, or only needed for one kind of request, it is a skill instead: instructions are always in context, skills are not.
 
