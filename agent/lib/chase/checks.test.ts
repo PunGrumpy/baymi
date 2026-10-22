@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   checkCommands,
+  commandTimeout,
   detectPackageManager,
+  fixVerdict,
   installCommand,
   parseNameStatus,
   readScripts,
+  reproduced,
   tail,
-  verdict,
 } from "#lib/chase/checks";
 
 describe(detectPackageManager, () => {
@@ -60,44 +62,75 @@ describe(tail, () => {
   });
 });
 
-describe(verdict, () => {
-  const passed = { exitCode: 0, name: "test", output: "" };
+describe(commandTimeout, () => {
+  it("caps a command at ten minutes and at what is left of the budget", () => {
+    expect(commandTimeout(5000)).toBe(600);
+    expect(commandTimeout(90.7)).toBe(90);
+    expect(commandTimeout(0)).toBe(1);
+  });
 
-  it("verifies only the change the passing checks ran on", () => {
+  it("bounds the install and every check by the same limit", () => {
+    expect(installCommand("npm", 90)).toBe(
+      "timeout 90 npm install --ignore-scripts"
+    );
+    expect(checkCommands("npm", { test: "jest" }, 90)[0]?.command).toBe(
+      "CI=true timeout 90 npm run test"
+    );
+  });
+});
+
+describe(fixVerdict, () => {
+  const passed = { exitCode: 0, name: "test", output: "" };
+  const failed = { exitCode: 1, name: "test", output: "1 failed" };
+  const baseline = { changeDigest: "d0", results: [passed, failed] };
+
+  it("verifies a change the checks passed on after they reproduced the failure", () => {
+    expect(reproduced(baseline)).toBeTruthy();
     expect(
-      verdict({
+      fixVerdict({
+        baseline,
         currentDigest: "d1",
-        ecosystem: "npm",
-        record: { changeDigest: "d1", results: [passed] },
+        latest: { changeDigest: "d1", results: [passed] },
       })
     ).toStrictEqual({ reasons: [], verified: true });
   });
 
   it("collects every reason a change is unverified", () => {
-    const result = verdict({
+    const result = fixVerdict({
+      baseline,
       currentDigest: "d2",
-      ecosystem: "npm",
-      record: {
+      latest: {
         changeDigest: "d1",
-        results: [passed, { exitCode: 1, name: "typecheck", output: "" }],
+        results: [passed, { exitCode: 2, name: "typecheck", output: "" }],
       },
     });
     expect(result.verified).toBeFalsy();
     expect(result.reasons).toStrictEqual([
       "The code changed after the checks last ran.",
-      "typecheck exited with 1.",
+      "typecheck exited with 2.",
     ]);
   });
 
-  it("never verifies an ecosystem with no toolchain or no recorded run", () => {
-    const result = verdict({
-      currentDigest: "d1",
-      ecosystem: "pip",
-      record: null,
-    });
-    expect(result.reasons).toStrictEqual([
-      "The sandbox has no toolchain for pip, so no check ran.",
-      "The checks never ran.",
+  it("never verifies a fix for a failure the checks did not reproduce", () => {
+    const green = { changeDigest: "d0", results: [passed] };
+    expect(reproduced(green)).toBeFalsy();
+    expect(
+      fixVerdict({
+        baseline: green,
+        currentDigest: "d1",
+        latest: { changeDigest: "d1", results: [passed] },
+      }).reasons
+    ).toStrictEqual([
+      "The failure did not reproduce: every check passed on the head as it was.",
+    ]);
+  });
+
+  it("never verifies without a run before and after the change", () => {
+    expect(
+      fixVerdict({ baseline: null, currentDigest: "d1", latest: null }).reasons
+    ).toStrictEqual([
+      "The failure was never reproduced: the checks never ran.",
+      "The checks did not run after the change.",
     ]);
   });
 });

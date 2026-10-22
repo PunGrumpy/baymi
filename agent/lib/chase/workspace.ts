@@ -1,6 +1,6 @@
 /**
- * The fixed commands the remediation tools run in the sandbox, and the
- * parsers for what they print.
+ * The fixed commands the chase's tools run in the sandbox, and the parsers
+ * for what they print.
  *
  * @remarks
  * The model runs its own commands through `bash`. These are the ones the
@@ -15,8 +15,11 @@ export const REPO_DIR = "/workspace/repo";
 /** Where the downloaded archive is written before it is unpacked. */
 export const ARCHIVE_PATH = "/tmp/baymi-source.tar.gz";
 
-/** A fix that touches more files than this is not a dependency bump. */
-export const MAX_CHANGED_FILES = 200;
+/**
+ * A fix that touches more files than this is not the smallest change that
+ * makes one failing check pass, and is reported rather than pushed.
+ */
+export const MAX_CHANGED_FILES = 50;
 
 /**
  * Paths never pushed, whatever `.gitignore` says. A project that does not

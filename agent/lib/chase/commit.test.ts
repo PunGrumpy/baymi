@@ -1,89 +1,170 @@
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  createCommits,
+  fastForward,
+  openFixPullRequest,
+} from "#lib/chase/commit";
 import type { GitHubSend } from "#lib/chase/commit";
-import { branchName, pushDraftPullRequest } from "#lib/chase/commit";
 
 const reply = <T>(status: number, body: T) => Promise.resolve({ body, status });
 
-/** A GitHub that answers each Git Data call in order with a fresh sha. */
-const github = () =>
-  vi.fn<GitHubSend>((path, init) => {
+/** A GitHub that answers each Git Data call with a fresh, numbered sha. */
+const github = () => {
+  let count = 0;
+  const next = (kind: string) => {
+    count += 1;
+    return `${kind}-${count}`;
+  };
+  return vi.fn<GitHubSend>((path, init) => {
     if (path.includes("/git/commits/") && init.method === "GET") {
-      return reply(200, { tree: { sha: "base-tree" } });
+      return reply(200, { tree: { sha: "head-tree" } });
     }
     if (path.endsWith("/git/blobs")) {
-      return reply(201, { sha: "blob" });
+      return reply(201, { sha: next("blob") });
     }
     if (path.endsWith("/git/trees")) {
-      return reply(201, { sha: "new-tree" });
+      return reply(201, { sha: next("tree") });
     }
     if (path.endsWith("/git/commits")) {
-      return reply(201, { sha: "new-commit" });
+      return reply(201, { sha: next("commit") });
     }
     if (path.endsWith("/git/refs")) {
       return reply(201, {});
     }
+    if (path.includes("/git/refs/heads/")) {
+      return reply(200, {});
+    }
     return reply(201, {
-      html_url: "https://github.com/acme/widgets/pull/9",
-      number: 9,
+      html_url: "https://github.com/acme/widgets/pull/43",
+      number: 43,
     });
   });
+};
 
-const input = (
-  send: GitHubSend,
-  branch = "baymi/fix-lodash-4.17.21-abc1234"
-) => ({
-  base: "main",
-  baseSha: "abc1234def",
+const bodyOf = (send: ReturnType<typeof github>, suffix: string) =>
+  send.mock.calls
+    .filter(([path]) => path.endsWith(suffix))
+    .map(([, init]) => init.body);
+
+describe(createCommits, () => {
+  it("chains each commit on the previous one, starting from the head", async () => {
+    const send = github();
+    const shas = await createCommits({
+      commits: [
+        {
+          files: [{ content: "YQ==", mode: "100644", path: "src/math.ts" }],
+          message: "fix(math): add both operands\n\nbody",
+        },
+        {
+          files: [{ content: null, mode: "100644", path: "src/old.ts" }],
+          message: "refactor: drop the unused helper\n\nbody",
+        },
+      ],
+      parentSha: "head",
+      repository: "acme/widgets",
+      send,
+    });
+    expect(shas).toStrictEqual(["commit-3", "commit-5"]);
+    expect(bodyOf(send, "/git/trees")).toStrictEqual([
+      {
+        base_tree: "head-tree",
+        tree: [
+          {
+            mode: "100644",
+            path: "src/math.ts",
+            sha: "blob-1",
+            type: "blob",
+          },
+        ],
+      },
+      {
+        base_tree: "tree-2",
+        tree: [{ mode: "100644", path: "src/old.ts", sha: null, type: "blob" }],
+      },
+    ]);
+    expect(bodyOf(send, "/git/commits")).toMatchObject([
+      { parents: ["head"] },
+      { parents: ["commit-3"] },
+    ]);
+  });
+
+  it("refuses an empty change before calling GitHub", async () => {
+    const send = github();
+    await expect(
+      createCommits({ commits: [], parentSha: "h", repository: "a/b", send })
+    ).rejects.toThrow("There is no change to push.");
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe(fastForward, () => {
+  it("moves the branch without force and reports a refusal", async () => {
+    const send = github();
+    await expect(
+      fastForward({
+        branch: "feat/thing",
+        repository: "acme/widgets",
+        send,
+        sha: "commit-5",
+      })
+    ).resolves.toStrictEqual({ ok: true });
+    expect(send).toHaveBeenCalledWith(
+      "/repos/acme/widgets/git/refs/heads/feat/thing",
+      { body: { force: false, sha: "commit-5" }, method: "PATCH" }
+    );
+    send.mockReturnValue(
+      reply(422, { message: "Update is not a fast forward" })
+    );
+    await expect(
+      fastForward({
+        branch: "feat/thing",
+        repository: "acme/widgets",
+        send,
+        sha: "commit-5",
+      })
+    ).resolves.toStrictEqual({ ok: false, status: 422 });
+  });
+});
+
+const fixInput = (send: GitHubSend, branch = "baymi/chase/42-abc1234") => ({
+  base: "feat/thing",
   body: "body",
   branch,
-  files: [
-    { content: "e30=", mode: "100644" as const, path: "package.json" },
-    { content: null, mode: "100644" as const, path: "old.lock" },
-  ],
-  message: "fix(deps): bump lodash",
   repository: "acme/widgets",
   send,
-  title: "fix(deps): bump lodash",
+  sha: "commit-5",
+  title: "fix(math): add both operands",
 });
 
-describe(branchName, () => {
-  it("names the package, the version and the base commit under baymi/", () => {
-    expect(
-      branchName({
-        baseSha: "abc1234def",
-        fixedVersion: "7.0.1",
-        packageName: "@babel/core",
-      })
-    ).toBe("baymi/fix-babel-core-7.0.1-abc1234");
-  });
-});
-
-describe(pushDraftPullRequest, () => {
-  it("builds the commit on the base tree and opens a draft", async () => {
+describe(openFixPullRequest, () => {
+  it("opens a pull request from a baymi/chase/ branch into the head branch", async () => {
     const send = github();
-    const pull = await pushDraftPullRequest(input(send));
-    expect(pull).toStrictEqual({
-      number: 9,
-      url: "https://github.com/acme/widgets/pull/9",
+    await expect(openFixPullRequest(fixInput(send))).resolves.toStrictEqual({
+      number: 43,
+      url: "https://github.com/acme/widgets/pull/43",
     });
-    const tree = send.mock.calls.find(([path]) => path.endsWith("/git/trees"));
-    expect(tree?.[1].body).toStrictEqual({
-      base_tree: "base-tree",
-      tree: [
-        { mode: "100644", path: "package.json", sha: "blob", type: "blob" },
-        { mode: "100644", path: "old.lock", sha: null, type: "blob" },
-      ],
-    });
-    const pullCall = send.mock.calls.at(-1);
-    expect(pullCall?.[1].body).toMatchObject({ base: "main", draft: true });
+    expect(bodyOf(send, "/git/refs")).toStrictEqual([
+      { ref: "refs/heads/baymi/chase/42-abc1234", sha: "commit-5" },
+    ]);
+    expect(bodyOf(send, "/pulls")).toStrictEqual([
+      {
+        base: "feat/thing",
+        body: "body",
+        head: "baymi/chase/42-abc1234",
+        title: "fix(math): add both operands",
+      },
+    ]);
   });
 
-  it("refuses a branch outside baymi/ before calling GitHub", async () => {
+  it("refuses a branch outside baymi/chase/ before calling GitHub", async () => {
     const send = github();
-    await expect(pushDraftPullRequest(input(send, "main"))).rejects.toThrow(
-      "not a baymi/ branch"
-    );
+    await expect(
+      openFixPullRequest(fixInput(send, "feat/thing"))
+    ).rejects.toThrow("not a baymi/chase/ branch");
+    await expect(
+      openFixPullRequest(fixInput(send, "baymi/chase/../main"))
+    ).rejects.toThrow("not a baymi/chase/ branch");
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -94,8 +175,8 @@ describe(pushDraftPullRequest, () => {
         ? reply(422, { message: "Reference already exists" })
         : github()(path, init)
     );
-    await expect(pushDraftPullRequest(input(send))).rejects.toThrow(
-      "GitHub answered 422 to creating baymi/fix-lodash-4.17.21-abc1234."
+    await expect(openFixPullRequest(fixInput(send))).rejects.toThrow(
+      "GitHub answered 422 to creating baymi/chase/42-abc1234."
     );
   });
 });

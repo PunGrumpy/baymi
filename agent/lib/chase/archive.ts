@@ -6,7 +6,7 @@
 
 const GITHUB_API = "https://api.github.com";
 
-/** A repository larger than this is not one a dependency bump should unpack. */
+/** A repository larger than this is not one a chase unpacks into a sandbox. */
 export const MAX_ARCHIVE_BYTES = 200 * 1024 * 1024;
 
 /** The one call this needs, narrowed so a test can supply one. */
