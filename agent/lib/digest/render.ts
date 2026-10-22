@@ -1,0 +1,218 @@
+import type {
+  BlockedReason,
+  Classified,
+  DigestContext,
+  HealthyReason,
+  NeedsOwnerReason,
+} from "#lib/digest/classify";
+import { compareText, sorted } from "#lib/digest/sorted";
+
+/**
+ * The morning digest as Slack text, in Thai.
+ *
+ * @remarks
+ * The shape is the one `CLAUDE.md` and the `engineering-lead` skill give:
+ * what needs the maintainer, as a pull request link with one sentence each;
+ * then what is blocked and why; then one line counting the healthy rest, last.
+ * No preamble and no sign-off. Links, repository names and check names stay
+ * as they are.
+ *
+ * Every string a stranger can write (a login, a check name, a branch name) is
+ * escaped for Slack and fenced as code before it is interpolated, so a
+ * pull request cannot put a mention or a link of its own into the digest.
+ * Titles are left out for the same reason.
+ */
+
+const MAX_NAMES = 3;
+const MAX_TEXT = 60;
+
+const RESERVED = /[&<>]/gu;
+
+/** Slack's three reserved characters, which it asks every sender to escape. */
+const escapeReserved = (char: string): string => {
+  switch (char) {
+    case "&": {
+      return "&amp;";
+    }
+    case "<": {
+      return "&lt;";
+    }
+    default: {
+      return "&gt;";
+    }
+  }
+};
+// oxlint-disable-next-line no-control-regex -- the point is to strip the control characters a name can carry
+const UNPRINTABLE = /[\u0000-\u001F\u007F`]/gu;
+
+/** A stranger's string made safe to put inside a Slack code span. */
+const inert = (text: string): string => {
+  const clean = text.replace(UNPRINTABLE, " ").trim();
+  const short =
+    clean.length > MAX_TEXT ? `${clean.slice(0, MAX_TEXT - 1)}…` : clean;
+  return short.replace(RESERVED, escapeReserved);
+};
+
+const code = (text: string): string => `\`${inert(text)}\``;
+
+/** Up to three names, then how many more there were. */
+const nameList = (names: readonly string[]): string => {
+  const shown = names.slice(0, MAX_NAMES).map(code).join(", ");
+  const rest = names.length - MAX_NAMES;
+  return rest > 0 ? `${shown} +${rest}` : shown;
+};
+
+const link = (entry: Classified): string =>
+  `https://github.com/${entry.repository}/pull/${entry.number}`;
+
+const byRepositoryThenNumber = (left: Classified, right: Classified): number =>
+  compareText(left.repository, right.repository) || left.number - right.number;
+
+const NEEDS_OWNER_ORDER: Readonly<Record<NeedsOwnerReason["kind"], number>> = {
+  conflict: 0,
+  question: 1,
+  ready: 2,
+};
+
+const orderOf = (entry: Classified): number =>
+  entry.verdict.bucket === "needs-owner"
+    ? NEEDS_OWNER_ORDER[entry.verdict.reason.kind]
+    : 0;
+
+const isOwnerLogin = (
+  login: string | undefined,
+  context: DigestContext
+): boolean =>
+  login !== undefined &&
+  context.owners.some((owner) => owner.toLowerCase() === login.toLowerCase());
+
+const authorName = (entry: Classified): string =>
+  entry.author === null ? "ผู้เขียนที่ถูกลบ" : code(entry.author.login);
+
+const needsOwnerSentence = (
+  entry: Classified,
+  reason: NeedsOwnerReason,
+  context: DigestContext
+): string => {
+  const ownPullRequest = isOwnerLogin(entry.author?.login, context);
+  if (reason.kind === "conflict") {
+    return ownPullRequest
+      ? `มี conflict กับ ${code(entry.baseRef)} ต้อง rebase`
+      : `มี conflict กับ ${code(entry.baseRef)} ต้องให้ ${authorName(entry)} แก้`;
+  }
+  if (reason.kind === "question") {
+    return `มีคำถามจาก ${code(reason.from)} ที่ยังไม่มีใครตอบ`;
+  }
+  return ownPullRequest
+    ? "เขียวแล้ว รอคุณกด merge"
+    : `เขียวแล้ว รอคุณกด merge (โดย ${authorName(entry)})`;
+};
+
+const ciSentence = (
+  reason: Extract<BlockedReason, { kind: "ci" }>,
+  baseRef: string
+): string => {
+  const names = nameList(reason.checks);
+  const behind = reason.behind ? " และ branch ตามหลัง base" : "";
+  switch (reason.failure) {
+    case "diff": {
+      return `CI ล้ม (${names}) จากโค้ดใน diff เอง ต้องแก้บน branch${behind}`;
+    }
+    case "stale-base": {
+      return `CI ล้ม (${names}) เหมือนที่ล้มบน ${code(baseRef)} หรือบน PR อื่นในรีโปนี้ ไม่ใช่จาก diff${behind}`;
+    }
+    case "flake": {
+      return `CI ล้ม (${names}) น่าจะ flake (timeout) ควร rerun ครั้งเดียว`;
+    }
+    default: {
+      return `CI ล้ม (${names}) ยังแยกสาเหตุไม่ได้ ต้องเปิด log ดู${behind}`;
+    }
+  }
+};
+
+const blockedSentence = (entry: Classified, reason: BlockedReason): string =>
+  reason.kind === "ci"
+    ? ciSentence(reason, entry.baseRef)
+    : `บอทเขียนความเห็นไว้ ${reason.threads} เธรดที่ยังไม่มีใครดู`;
+
+const HEALTHY_LABELS: Readonly<Record<HealthyReason, string>> = {
+  release: "release PR",
+  stacked: "ซ้อนบน PR อื่น",
+  "waiting-author": "รอผู้เขียน",
+  "waiting-ci": "รอ CI",
+};
+
+/** The order the healthy parts are listed in, fixed so the line is stable. */
+const HEALTHY_ORDER: readonly HealthyReason[] = [
+  "waiting-ci",
+  "waiting-author",
+  "stacked",
+  "release",
+];
+
+const healthyCounts = (entries: readonly Classified[]): string => {
+  const parts: string[] = [];
+  for (const reason of HEALTHY_ORDER) {
+    const count = entries.filter(
+      ({ verdict }) => verdict.bucket === "healthy" && verdict.reason === reason
+    ).length;
+    if (count > 0) {
+      parts.push(`${count} ${HEALTHY_LABELS[reason]}`);
+    }
+  }
+  return parts.join(", ");
+};
+
+/** What a day with no pull requests at all says. */
+export const NO_PULL_REQUESTS = "ไม่มี PR ที่เปิดอยู่ในช่วง 30 วันนี้";
+
+/**
+ * Renders the digest for a list of classified pull requests.
+ *
+ * @remarks
+ * Pure: the same list renders the same text. The healthy line is always last
+ * and always present once there is anything to say, even when it counts zero,
+ * so a reader learns the shape once.
+ */
+export const renderDigest = (
+  entries: readonly Classified[],
+  context: DigestContext
+): string => {
+  if (entries.length === 0) {
+    return NO_PULL_REQUESTS;
+  }
+  const needsOwner = sorted(
+    entries.filter(({ verdict }) => verdict.bucket === "needs-owner"),
+    (left, right) =>
+      orderOf(left) - orderOf(right) || byRepositoryThenNumber(left, right)
+  );
+  const blocked = sorted(
+    entries.filter(({ verdict }) => verdict.bucket === "blocked"),
+    byRepositoryThenNumber
+  );
+  const healthy = entries.filter(({ verdict }) => verdict.bucket === "healthy");
+
+  const lines: string[] = [];
+  for (const entry of needsOwner) {
+    if (entry.verdict.bucket === "needs-owner") {
+      lines.push(
+        `${link(entry)} ${needsOwnerSentence(entry, entry.verdict.reason, context)}`
+      );
+    }
+  }
+  for (const entry of blocked) {
+    if (entry.verdict.bucket === "blocked") {
+      lines.push(
+        `${link(entry)} ${blockedSentence(entry, entry.verdict.reason)}`
+      );
+    }
+  }
+
+  const breakdown = healthyCounts(healthy);
+  const rest = breakdown === "" ? "" : ` (${breakdown})`;
+  if (lines.length === 0) {
+    return `ไม่มีอะไรต้องให้คุณดูวันนี้ มี ${healthy.length} อันปกติ${rest}`;
+  }
+  lines.push(`อีก ${healthy.length} อันปกติ${rest}`);
+  return lines.join("\n");
+};
