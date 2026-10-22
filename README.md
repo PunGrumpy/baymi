@@ -28,16 +28,16 @@ baymiai reviewed
   Security review: 1 finding (1 high).
 ```
 
-Baymi's reviews never change your code and never run it. The reviewing agent has no shell, no file writes, and no outbound fetch. The one exception is a fix you ask for: a separate subagent bumps a vulnerable dependency in its own sandbox and opens a draft pull request, which you still decide whether to merge.
+Baymi's reviews never change your code and never run it. The reviewing agent has no shell, no file writes, and no outbound fetch. The one exception is the chase: when your pull request's own code fails its checks, a separate subagent reproduces the failure in its own sandbox, fixes it, and pushes the fix to that pull request's branch. It never merges; that stays your click.
 
-Baymi is also the engineering lead for the person who installed it. It follows their open pull requests toward merge, works each in a fixed order (conflicts, then review threads, then CI), tells a flaky check from a stale base from a bug in the diff, and speaks up only for what needs them: a green pull request waiting on their merge, a question nobody answered, a conflict only the author can resolve, a blocker it cannot clear. Merging stays their click. The standing orders are in `agent/instructions/lead.ts` and the playbook is the `engineering-lead` skill. Today it does this when you ask, in Slack or on a mention. The weekday digest and the subagent that fixes a failing branch are not wired yet, and the review turn never carries these orders. When a check on one of their pull requests goes red, it classifies the failure, reruns a flake once, and tells them on Slack only if the pull request is blocked on them; that needs the GitHub App subscribed to `check_run` and `workflow_run`.
+Baymi is also the engineering lead for the person who installed it. It follows their open pull requests toward merge, works each in a fixed order (conflicts, then review threads, then CI), tells a flaky check from a stale base from a bug in the diff, and speaks up only for what needs them: a green pull request waiting on their merge, a question nobody answered, a conflict only the author can resolve, a blocker it cannot clear. Merging stays their click. The standing orders are in `agent/instructions/lead.ts` and the playbook is the `engineering-lead` skill. Today it does this when you ask, in Slack or on a mention. The weekday digest is not wired yet, and the review turn never carries these orders. When a check on one of their pull requests goes red, it classifies the failure, reruns a flake once, hands a failure in the diff's own code to the chase, and tells them on Slack only if the pull request is still blocked on them; that needs the GitHub App subscribed to `check_run` and `workflow_run`.
 
 ## What it does
 
 - **Reviews every pull request**: opened on an installed repository, for security only. Drafts wait until they are marked ready; bots are skipped. Each push gets a follow-up that updates the same summary comment, says which earlier findings the push fixed, and adds inline comments only for new ones. The head commit is checked out, so it reads the callers, the middleware, and the config around the change, not only the hunk. Findings land as inline review comments you can resolve one by one.
 - **Answers an @mention**: from an owner, member, or collaborator on any issue or pull request. Ask about a finding, ask it to check one file, or ask for a second look after a fix, and it answers each earlier finding in its own thread: fixed, still open, or withdrawn.
 - **Answers in Slack**: what it found on a pull request, what is open, which repositories it watches. Tell it how you want findings reported or what counts as noise, and it saves that to memory.
-- **Fixes a vulnerable dependency when you ask**: mention `@baymiai` or message it in Slack with the repository and the package. A subagent reads the advisories against the versions in use, bumps the package to the version that clears them, runs the project's own install, type check, lint and tests with lifecycle scripts off, tries up to two code fixes if the bump breaks something, and opens a draft pull request. The pull request says whether the checks passed on that exact change, and calls anything else an unverified mitigation.
+- **Takes a red pull request to green**: when a check on your pull request fails because of the diff's own code, or when you ask, the chase subagent reproduces the failure with the project's own scripts in its own sandbox (lifecycle scripts off), makes the smallest fix, runs every check again, and pushes atomic commits to the branch, or opens a pull request against it when it may not push there. Two attempts at most, three chases a day, one per head; if it cannot fix it, you get one Slack line saying why. It needs `ANTHROPIC_API_KEY` in the deployment's environment, since it runs on Claude Sonnet 5.5 directly. `docs/chase.md` has the details.
 - **Posts to Slack on its own in two cases**: a critical or high finding, and a review that could not finish. One card each, with a button to the pull request, so a missing review is not mistaken for a clean one.
 
 ```text
@@ -62,6 +62,7 @@ Where you install the GitHub App decides what Baymi watches. There is no reposit
 - [Bun](https://bun.sh)
 - A Vercel account with the [Vercel CLI](https://vercel.com/docs/cli) authenticated (`vercel login`)
 - Nothing for the model: it runs on [Vercel AI Gateway](https://vercel.com/docs/ai-gateway), which the deployment's OIDC token authenticates. The model is `moonshotai/kimi-k2.7-code`, set in `agent/lib/model.ts`, which the gateway's free tier admits
+- `ANTHROPIC_API_KEY` in the server environment for the chase, which calls Claude Sonnet 5.5 on Anthropic directly. Without it everything else runs and the chase refuses to start
 
 ## Setup
 
@@ -87,7 +88,7 @@ Both channels read their credentials from a [Vercel Connect](https://vercel.com/
 vercel connect create github
 ```
 
-In the GitHub App's settings, set the webhook URL to `https://your_deployment.vercel.app/eve/v1/github`, generate a secret into `GITHUB_WEBHOOK_SECRET`, and subscribe to `pull_request`, `issue_comment`, and `pull_request_review_comment`. Permissions: Contents read and write, Metadata read, Issues read and write, Pull requests read and write. Reviews need only Contents read; remediation pushes its `baymi/` branch with write, so protect each default branch with a rule that requires a pull request.
+In the GitHub App's settings, set the webhook URL to `https://your_deployment.vercel.app/eve/v1/github`, generate a secret into `GITHUB_WEBHOOK_SECRET`, and subscribe to `pull_request`, `issue_comment`, and `pull_request_review_comment`. Permissions: Contents read and write, Metadata read, Issues read and write, Pull requests read and write. Reviews need only Contents read; the chase pushes a fix to a pull request's branch, or a `baymi/chase/` branch, with write, so protect each default branch with a rule that requires a pull request.
 
 **Slack**: create the connector with triggers and register eve's route:
 
