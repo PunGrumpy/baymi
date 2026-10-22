@@ -29,8 +29,11 @@ const slackConversation = z
  * is parsed on first import, so a misconfigured deployment fails discovery
  * with one report naming every problem.
  *
- * The model needs no variable: it is a gateway id in `#lib/model`, and AI
- * Gateway takes the deployment's OIDC token.
+ * The model's key is required, not optional: both models in `#lib/model` are
+ * called on Anthropic directly. eve reads `ANTHROPIC_API_KEY` from the process
+ * environment itself, so nothing here passes it on. It is listed so that a
+ * deployment without it fails discovery by name, rather than failing the
+ * first review with a missing-key error from the provider call.
  *
  * The optional variables are the ones whose absence removes a capability
  * rather than breaking one. Without `SLACK_NOTIFY_CHANNEL` the agent still
@@ -44,6 +47,7 @@ export const env = createEnv({
   emptyStringAsUndefined: true,
   runtimeEnv: process.env,
   server: {
+    ANTHROPIC_API_KEY: z.string().min(1),
     GITHUB_CONNECTOR: connectorUid("github"),
     GITHUB_WEBHOOK_SECRET: z.string(),
     POSTHOG_API_KEY: z.string().optional(),
