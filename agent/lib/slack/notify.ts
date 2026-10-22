@@ -219,12 +219,16 @@ export type Delivery =
   | { readonly ok: true }
   | { readonly error: string; readonly ok: false };
 
-const slackCall = async <Payload>(
+/**
+ * One Slack Web API call: `body` as JSON, the answer parsed by `schema`.
+ * `Body` is whatever shape the method takes, so each caller types its own.
+ */
+export const slackCall = async <Payload, Body>(
   schema: z.ZodType<Payload>,
   fetchImpl: FetchLike,
   token: string,
   method: string,
-  body: Readonly<Record<string, string>> | SlackPost
+  body: Body
 ): Promise<Payload> => {
   const response = await fetchImpl(`${SLACK_API}/${method}`, {
     body: JSON.stringify(body),
@@ -239,6 +243,36 @@ const slackCall = async <Payload>(
 
 /** Whether a Slack ID names a person rather than a conversation. */
 const isMemberId = (id: string): boolean => /^[UW]/u.test(id);
+
+/** The conversation a target names, or why it could not be opened. */
+export type Conversation =
+  | { readonly channel: string; readonly ok: true }
+  | { readonly error: string; readonly ok: false };
+
+/**
+ * The conversation id a post to `target` goes to: the target itself for a
+ * channel, the direct message that `conversations.open` returns for a member.
+ */
+export const resolveConversation = async (input: {
+  readonly fetchImpl?: FetchLike;
+  readonly target: string;
+  readonly token: string;
+}): Promise<Conversation> => {
+  const { fetchImpl = fetch, target, token } = input;
+  if (!isMemberId(target)) {
+    return { channel: target, ok: true };
+  }
+  const opened = await slackCall(
+    CONVERSATION_OPENED,
+    fetchImpl,
+    token,
+    "conversations.open",
+    { users: target }
+  );
+  return opened.ok
+    ? { channel: opened.channel.id, ok: true }
+    : { error: `conversations.open: ${opened.error}`, ok: false };
+};
 
 /**
  * Posts one message to a Slack conversation, opening the direct message
@@ -259,26 +293,17 @@ export const postSlackMessage = async (input: {
   readonly token: string;
 }): Promise<Delivery> => {
   const { fetchImpl = fetch, message, target, token } = input;
-  let channel = target;
-  if (isMemberId(target)) {
-    const opened = await slackCall(
-      CONVERSATION_OPENED,
-      fetchImpl,
-      token,
-      "conversations.open",
-      { users: target }
-    );
-    if (!opened.ok) {
-      return { error: `conversations.open: ${opened.error}`, ok: false };
-    }
-    channel = opened.channel.id;
+  const conversation = await resolveConversation({ fetchImpl, target, token });
+  if (!conversation.ok) {
+    return { error: conversation.error, ok: false };
   }
+  const post: SlackPost = { channel: conversation.channel, ...message };
   const posted = await slackCall(
     MESSAGE_POSTED,
     fetchImpl,
     token,
     "chat.postMessage",
-    { channel, ...message }
+    post
   );
   return posted.ok
     ? { ok: true }
