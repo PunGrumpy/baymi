@@ -15,8 +15,8 @@
  *
  * Two of the lead's checks are not read at all. `Baymi security review`
  * reports and never gates, so the facts leave it out. A bot release pull
- * request (`Version Packages`, `chore(release)`) is healthy unless its CI
- * fails.
+ * request (a bot author, and a release title or branch) is healthy unless its
+ * CI fails.
  */
 
 /** A person or bot on GitHub. */
@@ -113,11 +113,45 @@ export interface Classified {
   readonly verdict: Verdict;
 }
 
-const RELEASE_TITLE = /^(?:Version Packages|chore\(release\))/iu;
+/**
+ * Bots that open release pull requests, by login. GitHub types `github-actions`
+ * as a `Bot` already, and a `[bot]` login is one by name; the list covers a
+ * fact built without either.
+ */
+const RELEASE_BOTS: ReadonlySet<string> = new Set([
+  "dependabot",
+  "github-actions",
+  "renovate",
+]);
 
-/** A bot's release pull request, which the lead's orders call healthy. */
+const BOT_SUFFIX = /\[bot\]$/iu;
+
+/**
+ * The titles release tooling writes: changesets (`Version Packages`,
+ * `chore: Version packages`), and release-please or a hand-run release
+ * (`chore(release): ...`, `chore(main): release 1.2.3`, `chore: release`).
+ */
+const RELEASE_TITLE =
+  /\bVersion Packages\b|^chore\(release\)|^chore(?:\([^)]*\))?:\s*release\b/iu;
+
+/** The branches those tools open their pull requests from. */
+const RELEASE_BRANCH = /^(?:changeset-release\/|release-please--)/iu;
+
+const isBotAuthor = (author: Person | null): boolean =>
+  author !== null &&
+  (author.isBot ||
+    BOT_SUFFIX.test(author.login) ||
+    RELEASE_BOTS.has(author.login.toLowerCase()));
+
+/**
+ * A bot's release pull request, which the lead's orders call healthy. The
+ * author has to be a bot: a person's pull request titled like a release is a
+ * pull request like any other.
+ */
 const isBotRelease = (facts: PullRequestFacts): boolean =>
-  facts.author?.isBot === true && RELEASE_TITLE.test(facts.title.trim());
+  isBotAuthor(facts.author) &&
+  (RELEASE_TITLE.test(facts.title.trim()) ||
+    RELEASE_BRANCH.test(facts.headRef.trim()));
 
 const sameLogin = (left: string, right: string): boolean =>
   left.toLowerCase() === right.toLowerCase();

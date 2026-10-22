@@ -182,12 +182,62 @@ describe(classifyPullRequest, () => {
   });
 
   describe("bot release pull requests", () => {
-    it("are healthy when CI is green", () => {
+    const TITLES = [
+      "Version Packages",
+      "chore: Version packages",
+      "Version Packages (next)",
+      "chore(release): v1.2.3",
+      "chore(release): version packages",
+      "chore(main): release 1.2.3",
+      "chore(main): release gozo 0.4.0",
+      "chore: release v2.0.0",
+    ];
+
+    it.each(TITLES)("are healthy when CI is green: %s", (title) => {
+      expect(verdict({ author: releaseBot, title })).toStrictEqual({
+        bucket: "healthy",
+        reason: "release",
+      });
+    });
+
+    it.each(["changeset-release/main", "release-please--branches--main"])(
+      "are healthy by their branch when the title says nothing: %s",
+      (headRef) => {
+        expect(
+          verdict({ author: releaseBot, headRef, title: "Update packages" })
+        ).toStrictEqual({ bucket: "healthy", reason: "release" });
+      }
+    );
+
+    it.each([
+      ["github-actions", { isBot: true, login: "github-actions" }],
+      ["github-actions[bot]", { isBot: true, login: "github-actions[bot]" }],
+      ["dependabot", { isBot: true, login: "dependabot" }],
+      ["renovate", { isBot: true, login: "renovate" }],
+      [
+        "a known bot login the flag missed",
+        { isBot: false, login: "renovate" },
+      ],
+      [
+        "a [bot] login the flag missed",
+        { isBot: false, login: "release-please[bot]" },
+      ],
+    ])("are recognised for the author %s", (_name, author) => {
+      expect(verdict({ author, title: "Version Packages" })).toStrictEqual({
+        bucket: "healthy",
+        reason: "release",
+      });
+    });
+
+    it("is gozo#1, a changesets pull request from github-actions", () => {
       expect(
-        verdict({ author: releaseBot, title: "chore(release): v1.2.3" })
-      ).toStrictEqual({ bucket: "healthy", reason: "release" });
-      expect(
-        verdict({ author: releaseBot, title: "Version Packages" })
+        verdict({
+          author: releaseBot,
+          headRef: "changeset-release/main",
+          number: 1,
+          repository: "PunGrumpy/gozo",
+          title: "chore: Version packages",
+        })
       ).toStrictEqual({ bucket: "healthy", reason: "release" });
     });
 
@@ -211,10 +261,32 @@ describe(classifyPullRequest, () => {
       ).toStrictEqual({ bucket: "healthy", reason: "release" });
     });
 
-    it("do not include a person's pull request that is merely titled like one", () => {
-      expect(verdict({ title: "chore(release): v1.2.3" })).toMatchObject({
-        reason: { kind: "ready" },
-      });
+    it.each(TITLES)(
+      "do not include a person's pull request titled like one: %s",
+      (title) => {
+        expect(verdict({ title })).toMatchObject({
+          reason: { kind: "ready" },
+        });
+      }
+    );
+
+    it.each(["changeset-release/main", "release-please--branches--main"])(
+      "do not include a person's pull request from the bot's branch: %s",
+      (headRef) => {
+        expect(verdict({ headRef, title: "Update packages" })).toMatchObject({
+          reason: { kind: "ready" },
+        });
+      }
+    );
+
+    it("do not include a bot's pull request that is not a release", () => {
+      expect(
+        verdict({
+          author: dependabot,
+          headRef: "dependabot/npm_and_yarn/release-it-2.0.0",
+          title: "chore(deps): bump release-it from 1.0.0 to 2.0.0",
+        })
+      ).toMatchObject({ reason: { kind: "ready" } });
     });
   });
 
