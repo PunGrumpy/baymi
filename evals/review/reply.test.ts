@@ -55,10 +55,30 @@ describe(hasParsedFinding, () => {
     ).toBeFalsy();
   });
 
-  it("rejects a finding with no line, which cannot be placed", () => {
+  it("accepts a finding with `File: path` and no line, which the channel places", () => {
     expect(
       hasParsedFinding(
         BLOCK.replace("src/routes/export.ts:6", "src/routes/export.ts"),
+        "src/routes/export.ts",
+        ["high"]
+      )
+    ).toBeTruthy();
+  });
+
+  it("accepts the same finding with no backticks around the path", () => {
+    expect(
+      hasParsedFinding(
+        BLOCK.replace("`src/routes/export.ts:6`", "src/routes/export.ts"),
+        "src/routes/export.ts",
+        ["high"]
+      )
+    ).toBeTruthy();
+  });
+
+  it("still rejects bullets when they carry no line either", () => {
+    expect(
+      hasParsedFinding(
+        BULLETS.replace("src/routes/export.ts:6", "src/routes/export.ts"),
         "src/routes/export.ts",
         ["high"]
       )

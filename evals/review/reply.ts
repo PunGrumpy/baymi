@@ -12,6 +12,9 @@ import type { Severity } from "#lib/github/review";
  * `### High · title` and `File:` block fails this even though a person
  * reading it sees a review. A regular expression in the eval can drift from
  * the parser; this cannot.
+ *
+ * A finding with `File: path` and no line counts. The skill allows it, and
+ * the channel places it on the file's first added line (`anchorReview`).
  */
 export const hasParsedFinding = (
   message: string | undefined,
@@ -19,8 +22,5 @@ export const hasParsedFinding = (
   severities: readonly Severity[]
 ): boolean =>
   parseReview(message ?? "")?.findings.some(
-    (finding) =>
-      finding.path === path &&
-      finding.line !== null &&
-      severities.includes(finding.severity)
+    (finding) => finding.path === path && severities.includes(finding.severity)
   ) ?? false;
