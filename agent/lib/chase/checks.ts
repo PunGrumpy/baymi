@@ -126,7 +126,7 @@ export const tail = (text: string, max = OUTPUT_TAIL_CHARACTERS): string =>
 
 /** The checks as they stood when they last ran. */
 export interface CheckRecord {
-  /** A digest of the working tree's changes at the time the checks ran. */
+  /** A digest of the working tree's changes at the time the checks ran; empty when it could not be taken. */
   readonly changeDigest: string;
   readonly results: readonly CheckResult[];
 }
@@ -169,7 +169,9 @@ export const fixVerdict = (input: {
   if (latest === null) {
     reasons.push("The checks did not run after the change.");
   } else {
-    if (latest.changeDigest !== currentDigest) {
+    if (latest.changeDigest === "" || currentDigest === "") {
+      reasons.push("The change could not be measured in the sandbox.");
+    } else if (latest.changeDigest !== currentDigest) {
       reasons.push("The code changed after the checks last ran.");
     }
     if (latest.results.length === 0) {

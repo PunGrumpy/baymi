@@ -14,6 +14,7 @@ import type { ChaseResult } from "#lib/chase/result";
 import { chaseState } from "#lib/chase/state";
 import {
   CHANGES_COMMAND,
+  decodeListing,
   DIGEST_COMMAND,
   MODES_COMMAND,
   parseModes,
@@ -55,7 +56,12 @@ export default defineTool({
     }
     const sandbox = await ctx.getSandbox();
     const listed = await sandbox.run({ command: CHANGES_COMMAND });
-    const changes = parseNameStatus(listed.stdout);
+    if (listed.exitCode !== 0) {
+      return {
+        refused: `Listing the change failed: ${listed.stderr.trim()}. Call stop_chase with this reason.`,
+      };
+    }
+    const changes = parseNameStatus(decodeListing(listed.stdout));
     const grouping = groupCommits(changes, commits);
     if (!grouping.ok) {
       return { problems: grouping.problems, refused: "Nothing was pushed." };
@@ -63,7 +69,7 @@ export default defineTool({
     const digest = await sandbox.run({ command: DIGEST_COMMAND });
     const verdict = fixVerdict({
       baseline: state.baseline,
-      currentDigest: digest.stdout.trim(),
+      currentDigest: digest.exitCode === 0 ? digest.stdout.trim() : "",
       latest: state.latest,
     });
     if (!verdict.verified) {
@@ -74,7 +80,12 @@ export default defineTool({
       };
     }
     const staged = await sandbox.run({ command: MODES_COMMAND });
-    const modes = parseModes(staged.stdout);
+    if (staged.exitCode !== 0) {
+      return {
+        refused: `Reading the file modes failed: ${staged.stderr.trim()}. Call stop_chase with this reason.`,
+      };
+    }
+    const modes = parseModes(decodeListing(staged.stdout));
     const read = async (change: ChangedPath): Promise<CommitFile> => {
       const bytes = change.deleted
         ? null

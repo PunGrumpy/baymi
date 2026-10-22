@@ -125,6 +125,16 @@ describe(fixVerdict, () => {
     ]);
   });
 
+  it("never verifies a change the sandbox could not measure", () => {
+    expect(
+      fixVerdict({
+        baseline,
+        currentDigest: "",
+        latest: { changeDigest: "", results: [passed] },
+      }).reasons
+    ).toStrictEqual(["The change could not be measured in the sandbox."]);
+  });
+
   it("never verifies without a run before and after the change", () => {
     expect(
       fixVerdict({ baseline: null, currentDigest: "d1", latest: null }).reasons

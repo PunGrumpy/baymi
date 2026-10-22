@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 /**
  * The fixed commands the chase's tools run in the sandbox, and the parsers
  * for what they print.
@@ -24,11 +26,15 @@ export const MAX_CHANGED_FILES = 50;
 /**
  * Paths never pushed, whatever `.gitignore` says. A project that does not
  * ignore its installed dependencies would otherwise push all of them.
+ *
+ * @remarks
+ * They go in the checkout's own `.git/info/exclude`, which is never pushed,
+ * rather than in an `:(exclude)` pathspec: once the install has created
+ * `node_modules`, a pathspec naming a path `.gitignore` already ignores
+ * makes `git add` exit 1, and every command chained after it printed nothing
+ * (`docs/notes.md`).
  */
-const EXCLUDED = ["node_modules", "**/node_modules"] as const;
-
-const pathspec = (): string =>
-  [".", ...EXCLUDED.map((path) => `':(exclude)${path}'`)].join(" ");
+const EXCLUDED = ["node_modules/"] as const;
 
 /** Unpacks the archive GitHub serves, whose files sit under one top folder. */
 export const UNPACK_COMMAND = [
@@ -45,21 +51,34 @@ export const UNPACK_COMMAND = [
 export const BASELINE_COMMAND = [
   `cd ${REPO_DIR}`,
   "git init -q",
-  `git add -A -- ${pathspec()}`,
+  "mkdir -p .git/info",
+  `printf '%s\\n' ${EXCLUDED.join(" ")} >> .git/info/exclude`,
+  "git add -A",
   "git -c user.name=baymi -c user.email=baymi@users.noreply.github.com commit -q --no-verify -m baseline",
 ].join(" && ");
 
 /** Stages every change outside the excluded paths. */
-const STAGE = `cd ${REPO_DIR} && git add -A -- ${pathspec()}`;
+const STAGE = `cd ${REPO_DIR} && git add -A`;
 
 /** A digest of the staged change; equal digests mean the same change. */
 export const DIGEST_COMMAND = `${STAGE} && git diff --cached --binary HEAD | sha256sum | cut -d' ' -f1`;
 
-/** The changed paths, NUL-separated, renames split into delete and add. */
-export const CHANGES_COMMAND = `${STAGE} && git diff --cached --name-status -z --no-renames HEAD`;
+/**
+ * Pipes a NUL-separated listing through base64, so it survives a sandbox
+ * whose command output does not carry NUL bytes (`docs/notes.md`). The
+ * runtime decodes it with {@link decodeListing}.
+ */
+const ENCODE = "base64 | tr -d '\\n'";
 
-/** The staged entries with their modes, NUL-separated. */
-export const MODES_COMMAND = `${STAGE} && git ls-files -s -z`;
+/** The changed paths, NUL-separated and base64-encoded, renames split into delete and add. */
+export const CHANGES_COMMAND = `${STAGE} && git diff --cached --name-status -z --no-renames HEAD | ${ENCODE}`;
+
+/** The staged entries with their modes, NUL-separated and base64-encoded. */
+export const MODES_COMMAND = `${STAGE} && git ls-files -s -z | ${ENCODE}`;
+
+/** The NUL-separated listing a command above printed as base64. */
+export const decodeListing = (stdout: string): string =>
+  Buffer.from(stdout.trim(), "base64").toString("utf-8");
 
 /** The root's file names, one per line, to find the lockfile. */
 export const ROOT_FILES_COMMAND = `ls -1A ${REPO_DIR}`;

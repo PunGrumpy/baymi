@@ -1,8 +1,13 @@
+import { Buffer } from "node:buffer";
+
 import { describe, expect, it } from "vitest";
 
+import { parseNameStatus } from "#lib/chase/checks";
 import {
   BASELINE_COMMAND,
   CHANGES_COMMAND,
+  decodeListing,
+  MODES_COMMAND,
   isPushablePath,
   parseModes,
 } from "#lib/chase/workspace";
@@ -42,9 +47,24 @@ describe(isPushablePath, () => {
 });
 
 describe("the workspace commands", () => {
-  it("leave installed dependencies out of the baseline and the change", () => {
-    expect(BASELINE_COMMAND).toContain("':(exclude)node_modules'");
-    expect(CHANGES_COMMAND).toContain("':(exclude)**/node_modules'");
+  it("leave installed dependencies out of the baseline and the change, without a pathspec git refuses", () => {
+    expect(BASELINE_COMMAND).toContain(
+      "printf '%s\\n' node_modules/ >> .git/info/exclude"
+    );
+    expect(CHANGES_COMMAND).not.toContain(":(exclude)");
     expect(CHANGES_COMMAND).toContain("--no-renames");
+  });
+});
+
+describe(decodeListing, () => {
+  it("gives back the NUL-separated listing the sandbox printed as base64", () => {
+    const listing = "M\0agent/lib/sum.ts\0D\0old file.ts\0";
+    const printed = `${Buffer.from(listing).toString("base64")}\n`;
+    expect(parseNameStatus(decodeListing(printed))).toStrictEqual([
+      { deleted: false, path: "agent/lib/sum.ts" },
+      { deleted: true, path: "old file.ts" },
+    ]);
+    expect(CHANGES_COMMAND).toContain("| base64 | tr -d");
+    expect(MODES_COMMAND).toContain("git ls-files -s -z | base64");
   });
 });

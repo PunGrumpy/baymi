@@ -83,7 +83,11 @@ export default defineTool({
         results.push(await run(check.name, check.command));
       }
     }
-    const record = { changeDigest: digestRun.stdout.trim(), results };
+    // A digest that could not be taken is recorded empty, which no push accepts.
+    const record = {
+      changeDigest: digestRun.exitCode === 0 ? digestRun.stdout.trim() : "",
+      results,
+    };
     chaseState.update((current) => recordRun(current, record));
     const runsLeft = MAX_CHECK_RUNS - state.checkRuns - 1;
     // The first run is the reproduction, and the model is told whether it saw the failure.
