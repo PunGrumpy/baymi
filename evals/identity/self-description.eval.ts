@@ -1,6 +1,8 @@
 import { defineEval } from "eve/evals";
 import { includes, satisfies } from "eve/evals/expect";
 
+import { LEAD_ROLE, SECURITY_REVIEW } from "./phrases";
+
 export default defineEval({
   description:
     "Says who it is, in its own name, as PunGrumpy's engineering lead and security reviewer, without reaching for a tool.",
@@ -17,8 +19,10 @@ export default defineEval({
         "introduces itself as Baymi, not as the GitHub handle"
       )
     );
-    // The reply may come in Thai, so each check also accepts the Thai word.
-    t.check(turn.message, includes(/engineering lead|หัวหน้า|วิศวกร/iu));
-    t.check(turn.message, includes(/security|review|ความปลอดภัย|รีวิว|ตรวจ/iu));
+    // The role may be named or described ("leads open pull requests toward
+    // merge"), and the security review must still be there. The patterns also
+    // accept Thai, since a reply to the owner is in Thai (`./phrases`).
+    t.check(turn.message, includes(LEAD_ROLE));
+    t.check(turn.message, includes(SECURITY_REVIEW));
   },
 });
