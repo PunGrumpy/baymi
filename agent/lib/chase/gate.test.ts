@@ -9,6 +9,7 @@ import {
   CHASE_DENIAL,
   chaseApproval,
   chaseMessage,
+  hasModelKey,
 } from "#lib/chase/gate";
 import type { GateDeps } from "#lib/chase/gate";
 import { chaseAuth } from "#lib/github/ci/turn";
@@ -291,5 +292,13 @@ describe(chaseMessage, () => {
     });
     expect(message).toContain(`- headSha: ${HEAD}`);
     expect(message).toContain("> line one line two");
+  });
+});
+
+describe(hasModelKey, () => {
+  it("needs a non-blank ANTHROPIC_API_KEY", () => {
+    expect(hasModelKey({ ANTHROPIC_API_KEY: "sk-ant-x" })).toBeTruthy();
+    expect(hasModelKey({ ANTHROPIC_API_KEY: "  " })).toBeFalsy();
+    expect(hasModelKey({})).toBeFalsy();
   });
 });

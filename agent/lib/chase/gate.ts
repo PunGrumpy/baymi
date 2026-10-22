@@ -21,7 +21,7 @@ import type { TrustContext } from "#lib/trust";
  * budget has room.
  *
  * @remarks
- * The `chase` tool runs this in the app runtime, then hands the subagent the
+ * The `chase_pull_request` tool runs this in the app runtime, then hands the subagent the
  * task it returns. Each refusal is a result like any other, so the caller
  * renders "nothing ran, and why" the same way it renders a chase that ran.
  * The order is cheapest first, and the budget is claimed last, so a request
@@ -291,3 +291,12 @@ export const chaseMessage = (task: ChaseTask): string =>
     "",
     "Answer with the result object your last tool returned, unchanged.",
   ].join("\n");
+
+/**
+ * Whether the server environment has the key the chase's model needs. The
+ * chase calls Anthropic directly, and eve only finds out the key is missing
+ * at the first model call, deep inside a session nobody is watching.
+ */
+export const hasModelKey = (environment: {
+  readonly ANTHROPIC_API_KEY?: string | undefined;
+}): boolean => (environment.ANTHROPIC_API_KEY ?? "").trim() !== "";
