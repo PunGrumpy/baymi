@@ -39,6 +39,7 @@ const node = (overrides: Partial<RawPullRequest> = {}): RawPullRequest => ({
   commits: commitWith(checkRun("Typecheck", "COMPLETED", "SUCCESS")),
   headRefName: "feat/thing",
   isDraft: false,
+  latestOpinionatedReviews: { nodes: [] },
   mergeStateStatus: "CLEAN",
   mergeable: "MERGEABLE",
   number: 7,
@@ -140,6 +141,60 @@ describe(toFacts, () => {
     expect(toFacts(node({ reviewDecision: "APPROVED" })).reviewDecision).toBe(
       "approved"
     );
+  });
+
+  describe("changes requested", () => {
+    type RawReview = NonNullable<
+      RawPullRequest["latestOpinionatedReviews"]["nodes"]
+    >[number];
+
+    const review = (
+      login: string,
+      state: string,
+      typename = "User"
+    ): RawReview => ({
+      author: actor(login, typename),
+      state,
+    });
+
+    const requestedBy = (...nodes: RawReview[]) =>
+      toFacts(node({ latestOpinionatedReviews: { nodes } })).changesRequestedBy;
+
+    it("lists the people whose latest review asks for changes, bots included", () => {
+      expect(
+        requestedBy(
+          review("octocat", "CHANGES_REQUESTED"),
+          review("hubot", "APPROVED"),
+          review("coderabbit", "CHANGES_REQUESTED", "Bot")
+        )
+      ).toStrictEqual([
+        { isBot: false, login: "octocat" },
+        { isBot: true, login: "coderabbit" },
+      ]);
+    });
+
+    it("has nobody when no review asks for changes", () => {
+      expect(requestedBy(review("hubot", "APPROVED"))).toStrictEqual([]);
+      expect(requestedBy()).toStrictEqual([]);
+    });
+
+    it("skips a reviewer whose account is gone", () => {
+      expect(
+        requestedBy({ author: null, state: "CHANGES_REQUESTED" })
+      ).toStrictEqual([]);
+    });
+
+    it("reads the reviews as unread when GitHub gave none back", () => {
+      expect(
+        toFacts(node({ latestOpinionatedReviews: { nodes: null } })).readFailed
+      ).toBeTruthy();
+    });
+
+    it("reads the threads as unread when GitHub gave none back", () => {
+      expect(
+        toFacts(node({ reviewThreads: { nodes: null } })).readFailed
+      ).toBeTruthy();
+    });
   });
 
   describe("checks", () => {

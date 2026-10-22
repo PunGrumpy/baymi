@@ -124,6 +124,38 @@ describe(renderDigest, () => {
     expect(text).toContain("มีคำถามจาก `octocat` ที่ยังไม่มีใครตอบ");
   });
 
+  it("says who asked for changes on the maintainer's pull request", () => {
+    const text = renderDigest(
+      [
+        entry(2, {
+          bucket: "needs-owner",
+          reason: { from: "octocat", kind: "changes-requested" },
+        }),
+      ],
+      context
+    );
+    expect(text).toContain("`octocat` ขอให้แก้ (changes requested) ที่ยังไม่มีใครตอบ");
+  });
+
+  it("puts changes requested with the questions, after conflicts and before green", () => {
+    const text = renderDigest(
+      [
+        ready(1),
+        entry(2, {
+          bucket: "needs-owner",
+          reason: { from: "octocat", kind: "changes-requested" },
+        }),
+        entry(3, { bucket: "needs-owner", reason: { kind: "conflict" } }),
+      ],
+      context
+    );
+    const links = text
+      .split("\n")
+      .map((line) => line.split(" ")[0])
+      .filter((word) => word?.startsWith("https://"));
+    expect(links).toStrictEqual([linkOf(3), linkOf(2), linkOf(1)]);
+  });
+
   it("gives each failure class its own sentence", () => {
     const text = renderDigest(
       [

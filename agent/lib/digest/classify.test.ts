@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   CheckFact,
   DigestContext,
+  Person,
   PullRequestFacts,
   Relations,
   ThreadFact,
@@ -48,6 +49,7 @@ const facts = (
   baseFailingChecks: [],
   baseRef: "main",
   behind: false,
+  changesRequestedBy: [],
   checks: [passing("Typecheck"), passing("Test")],
   conflicting: false,
   draft: false,
@@ -63,6 +65,12 @@ const facts = (
 });
 
 const ALONE: Relations = { siblingFailures: new Map(), stackedOn: false };
+
+/** Facts for a pull request some people asked changes of. */
+const requested = (...people: Person[]) => ({
+  changesRequestedBy: people,
+  reviewDecision: "changes-requested" as const,
+});
 
 const verdict = (
   overrides: Partial<PullRequestFacts> = {},
@@ -488,6 +496,81 @@ describe(classifyPullRequest, () => {
           threads: [thread({ lastAuthor: reviewer })],
         })
       ).toMatchObject({ reason: { kind: "question" } });
+    });
+  });
+
+  describe("changes requested", () => {
+    it("by a person on the maintainer's own pull request is the maintainer's to answer", () => {
+      expect(verdict(requested(reviewer))).toStrictEqual({
+        bucket: "needs-owner",
+        reason: { from: "octocat", kind: "changes-requested" },
+      });
+    });
+
+    it("counts when GitHub gave no review decision, which a repository without required reviews never does", () => {
+      expect(
+        verdict({ changesRequestedBy: [reviewer], reviewDecision: "none" })
+      ).toMatchObject({ reason: { kind: "changes-requested" } });
+    });
+
+    it("names the first person when several ask", () => {
+      const another = { isBot: false, login: "hubot" };
+      expect(verdict(requested(reviewer, another))).toMatchObject({
+        reason: { from: "octocat" },
+      });
+    });
+
+    it("skips a bot to name the person behind it", () => {
+      expect(verdict(requested(dependabot, reviewer))).toMatchObject({
+        reason: { from: "octocat" },
+      });
+    });
+
+    it("by a bot alone is not a person waiting", () => {
+      expect(verdict(requested(dependabot))).toStrictEqual({
+        bucket: "healthy",
+        reason: "waiting-author",
+      });
+    });
+
+    it("by nobody the data names stays with the author", () => {
+      expect(verdict({ reviewDecision: "changes-requested" })).toStrictEqual({
+        bucket: "healthy",
+        reason: "waiting-author",
+      });
+    });
+
+    it("on someone else's pull request is theirs to answer, so healthy", () => {
+      expect(
+        verdict({
+          author: { isBot: false, login: "hubot" },
+          ...requested(reviewer),
+        })
+      ).toStrictEqual({ bucket: "healthy", reason: "waiting-author" });
+    });
+
+    it("matches the maintainer's login without regard to case", () => {
+      expect(
+        verdict({
+          author: { isBot: false, login: "pungrumpy" },
+          ...requested(reviewer),
+        })
+      ).toMatchObject({ reason: { kind: "changes-requested" } });
+    });
+
+    it("beats failing CI and pending checks, since a person is waiting", () => {
+      expect(
+        verdict({ checks: [failing("Test")], ...requested(reviewer) })
+      ).toMatchObject({ reason: { kind: "changes-requested" } });
+      expect(
+        verdict({ checks: [pending("Test")], ...requested(reviewer) })
+      ).toMatchObject({ reason: { kind: "changes-requested" } });
+    });
+
+    it("yields to a conflict, which comes first", () => {
+      expect(
+        verdict({ conflicting: true, ...requested(reviewer) })
+      ).toMatchObject({ reason: { kind: "conflict" } });
     });
   });
 

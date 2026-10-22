@@ -55,6 +55,12 @@ export interface PullRequestFacts {
   readonly baseFailingChecks: readonly string[] | null;
   readonly baseRef: string;
   readonly behind: boolean;
+  /**
+   * Everyone whose latest review of the pull request asks for changes, bots
+   * included. Unlike `reviewDecision`, GitHub fills it in whether or not the
+   * repository requires reviews.
+   */
+  readonly changesRequestedBy: readonly Person[];
   readonly checks: readonly CheckFact[];
   readonly conflicting: boolean;
   readonly draft: boolean;
@@ -96,6 +102,7 @@ export interface DigestContext {
 export type FailureClass = "base" | "diff" | "flake" | "siblings" | "unknown";
 
 export type NeedsOwnerReason =
+  | { readonly from: string; readonly kind: "changes-requested" }
   | { readonly kind: "conflict" }
   | { readonly from: string; readonly kind: "question" }
   | { readonly kind: "ready" };
@@ -249,6 +256,26 @@ const unansweredQuestion = (
   return null;
 };
 
+/**
+ * The first person who asked for changes on the maintainer's own pull request,
+ * and is still waiting. The author is the maintainer, so nobody else will
+ * answer: this is a human question nobody answered, like an unresolved thread.
+ * A bot's request is not a person waiting, and on someone else's pull request
+ * the author owes the answer.
+ */
+const changesRequestedFromOwner = (
+  facts: PullRequestFacts,
+  context: DigestContext
+): string | null => {
+  if (facts.author === null || !isOwner(facts.author, context)) {
+    return null;
+  }
+  const requester = facts.changesRequestedBy.find(
+    (person) => !(person.isBot || isOwner(person, context))
+  );
+  return requester?.login ?? null;
+};
+
 /** Unresolved threads that only bots ever wrote in, on code that still exists. */
 const untriagedBotThreads = (facts: PullRequestFacts): number =>
   facts.threads.filter(
@@ -326,6 +353,10 @@ export const classifyPullRequest = (
   const asker = unansweredQuestion(facts, context);
   if (asker !== null) {
     return needsOwner({ from: asker, kind: "question" });
+  }
+  const requester = changesRequestedFromOwner(facts, context);
+  if (requester !== null) {
+    return needsOwner({ from: requester, kind: "changes-requested" });
   }
   if (ci !== null) {
     return ci;

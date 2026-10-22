@@ -21,6 +21,7 @@ const green = (number: number): PullRequestFacts => ({
   baseFailingChecks: [],
   baseRef: "main",
   behind: false,
+  changesRequestedBy: [],
   checks: [{ name: "Test", state: "success", timedOut: false }],
   conflicting: false,
   draft: false,
@@ -208,6 +209,21 @@ describe(runDigest, () => {
     expect(posted[0]?.text.split("\n")).toStrictEqual([
       "https://github.com/PunGrumpy/baymi/pull/1 เขียวแล้ว รอคุณกด merge",
       "https://github.com/PunGrumpy/baymi/pull/2 อ่านสถานะ CI จาก GitHub ไม่สำเร็จ ยังไม่รู้ว่าเขียวหรือแดง ต้องเปิดดูเอง",
+      "อีก 0 อันปกติ",
+    ]);
+  });
+
+  it("lists a human's changes requested on the maintainer's pull request, not as healthy", async () => {
+    const { deps, posted } = fakes([
+      {
+        ...green(1),
+        changesRequestedBy: [{ isBot: false, login: "octocat" }],
+        reviewDecision: "changes-requested",
+      },
+    ]);
+    await runDigest(deps, APP_AUTH);
+    expect(posted[0]?.text.split("\n")).toStrictEqual([
+      "https://github.com/PunGrumpy/baymi/pull/1 `octocat` ขอให้แก้ (changes requested) ที่ยังไม่มีใครตอบ",
       "อีก 0 อันปกติ",
     ]);
   });

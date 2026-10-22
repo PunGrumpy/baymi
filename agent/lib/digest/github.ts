@@ -40,6 +40,9 @@ query Digest($query: String!, $after: String, $pageSize: Int!) {
         mergeable
         mergeStateStatus
         reviewDecision
+        latestOpinionatedReviews(first: 20) {
+          nodes { state author { __typename login } }
+        }
         baseRefName
         headRefName
         repository { nameWithOwner }
@@ -132,6 +135,11 @@ const PULL_REQUEST = z.object({
   }),
   headRefName: z.string(),
   isDraft: z.boolean(),
+  latestOpinionatedReviews: z.object({
+    nodes: z
+      .array(z.object({ author: ACTOR, state: z.string() }).nullable())
+      .nullable(),
+  }),
   mergeStateStatus: z.string(),
   mergeable: z.string(),
   number: z.int(),
@@ -279,6 +287,13 @@ const threadOf = (
   resolved: thread.isResolved,
 });
 
+/** Everyone whose latest review of the pull request asks for changes. */
+const changesRequestedBy = (raw: RawPullRequest): Person[] =>
+  (raw.latestOpinionatedReviews.nodes ?? [])
+    .filter((review) => review?.state === "CHANGES_REQUESTED")
+    .map((review) => person(review?.author ?? null))
+    .filter((reviewer) => reviewer !== null);
+
 /**
  * One search result as the facts the classifier reads.
  *
@@ -305,6 +320,7 @@ export const toFacts = (
             .map((check) => check.name),
     baseRef: raw.baseRefName,
     behind: raw.mergeStateStatus === "BEHIND",
+    changesRequestedBy: changesRequestedBy(raw),
     checks: headChecks ?? [],
     conflicting: raw.mergeable === "CONFLICTING",
     draft: raw.isDraft,
@@ -317,7 +333,11 @@ export const toFacts = (
             author: person(comment.author),
           },
     number: raw.number,
-    readFailed: errored || headChecks === null,
+    readFailed:
+      errored ||
+      headChecks === null ||
+      raw.reviewThreads.nodes === null ||
+      raw.latestOpinionatedReviews.nodes === null,
     repository: raw.repository.nameWithOwner,
     reviewDecision: reviewDecisionOf(raw.reviewDecision),
     threads: (raw.reviewThreads.nodes ?? [])

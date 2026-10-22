@@ -69,6 +69,7 @@ const byRepositoryThenNumber = (left: Classified, right: Classified): number =>
   compareText(left.repository, right.repository) || left.number - right.number;
 
 const NEEDS_OWNER_ORDER: Readonly<Record<NeedsOwnerReason["kind"], number>> = {
+  "changes-requested": 1,
   conflict: 0,
   question: 1,
   ready: 2,
@@ -102,6 +103,9 @@ const needsOwnerSentence = (
   }
   if (reason.kind === "question") {
     return `มีคำถามจาก ${code(reason.from)} ที่ยังไม่มีใครตอบ`;
+  }
+  if (reason.kind === "changes-requested") {
+    return `${code(reason.from)} ขอให้แก้ (changes requested) ที่ยังไม่มีใครตอบ`;
   }
   return ownPullRequest
     ? "เขียวแล้ว รอคุณกด merge"
