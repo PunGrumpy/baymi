@@ -2,6 +2,7 @@ import type { SessionAuthContext } from "eve/context";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PullRequestFacts } from "#lib/digest/classify";
+import { CUT_SHORT } from "#lib/digest/render";
 import type { DigestDeps } from "#lib/digest/run";
 import { runDigest } from "#lib/digest/run";
 import { bangkokDayStart } from "#lib/digest/scope";
@@ -146,6 +147,28 @@ describe(runDigest, () => {
     const lateEvening = new Date("2026-10-22T17:30:00.000Z");
     await runDigest({ ...deps, now: () => lateEvening }, APP_AUTH);
     expect(posted.map(({ key }) => key)).toStrictEqual(["2026-10-23"]);
+  });
+
+  it("says so in the digest when the search stopped at its page limit", async () => {
+    const { deps, posted } = fakes([green(1)]);
+    deps.listOpenPullRequests.mockResolvedValueOnce({
+      facts: [green(1)],
+      truncated: true,
+    });
+    const outcome = await runDigest(deps, APP_AUTH);
+    expect(outcome).toMatchObject({ status: "posted", truncated: true });
+    expect(posted[0]?.text.split("\n").at(-1)).toBe(CUT_SHORT);
+  });
+
+  it("does not report a cut-short empty list as a day with no pull requests", async () => {
+    const { deps, posted } = fakes([]);
+    deps.listOpenPullRequests.mockResolvedValueOnce({
+      facts: [],
+      truncated: true,
+    });
+    await runDigest(deps, APP_AUTH);
+    expect(posted[0]?.text).not.toBe("ไม่มี PR ที่เปิดอยู่ในช่วง 30 วันนี้");
+    expect(posted[0]?.text).toContain(CUT_SHORT);
   });
 
   it("says so, once, on a day with no pull requests", async () => {

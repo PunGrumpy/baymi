@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Classified, DigestContext, Verdict } from "#lib/digest/classify";
-import { NO_PULL_REQUESTS, renderDigest } from "#lib/digest/render";
+import { CUT_SHORT, NO_PULL_REQUESTS, renderDigest } from "#lib/digest/render";
 
 const context: DigestContext = { owners: ["PunGrumpy"] };
 
@@ -279,6 +279,44 @@ describe(renderDigest, () => {
 
   it("says so when there are no pull requests at all", () => {
     expect(renderDigest([], context)).toBe(NO_PULL_REQUESTS);
+  });
+
+  describe("a list cut short", () => {
+    const truncated = { truncated: true };
+
+    it("says so on the last line, after the healthy count", () => {
+      const lines = renderDigest(
+        [ready(2), healthy(3, "waiting-ci")],
+        context,
+        truncated
+      ).split("\n");
+      expect(lines.at(-2)).toBe("อีก 1 อันปกติ (1 รอ CI)");
+      expect(lines.at(-1)).toBe(CUT_SHORT);
+    });
+
+    it("says nothing about a complete list", () => {
+      expect(
+        renderDigest([ready(2)], context, { truncated: false })
+      ).not.toContain(CUT_SHORT);
+      expect(renderDigest([ready(2)], context)).not.toContain(CUT_SHORT);
+    });
+
+    it("does not claim nothing needs the maintainer when it could not read everything", () => {
+      const text = renderDigest([healthy(1, "waiting-ci")], context, truncated);
+      expect(text.split("\n")).toStrictEqual([
+        "ไม่มีอะไรต้องให้คุณดูในส่วนที่อ่านได้ มี 1 อันปกติ (1 รอ CI)",
+        CUT_SHORT,
+      ]);
+    });
+
+    it("does not report an empty day as complete", () => {
+      const text = renderDigest([], context, truncated);
+      expect(text).not.toBe(NO_PULL_REQUESTS);
+      expect(text.split("\n")).toStrictEqual([
+        "ไม่พบ PR ในส่วนที่อ่านได้",
+        CUT_SHORT,
+      ]);
+    });
   });
 
   it("is the same text for the same list", () => {

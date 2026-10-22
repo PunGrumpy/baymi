@@ -196,19 +196,39 @@ const healthyCounts = (entries: readonly Classified[]): string => {
 export const NO_PULL_REQUESTS = "ไม่มี PR ที่เปิดอยู่ในช่วง 30 วันนี้";
 
 /**
+ * Said last when the listing stopped short, whether the search hit its page
+ * limit or GitHub aborted the query: what is above is not the whole list.
+ */
+export const CUT_SHORT =
+  "รายการนี้ไม่ครบ: อ่าน PR จาก GitHub ได้ไม่หมด (ชนขีดจำกัดของการค้นหาหรือ query ถูกตัด) อาจมี PR ที่ยังไม่ได้ดู";
+
+/** What the list was read from, beyond the pull requests in it. */
+export interface Listing {
+  /** True when the listing stopped short, so pull requests may be missing. */
+  readonly truncated: boolean;
+}
+
+/**
  * Renders the digest for a list of classified pull requests.
  *
  * @remarks
  * Pure: the same list renders the same text. The healthy line is always last
  * and always present once there is anything to say, even when it counts zero,
- * so a reader learns the shape once.
+ * so a reader learns the shape once. The one thing that comes after it is the
+ * notice that the list is cut short, and a cut-short list never claims there
+ * is nothing: an empty or quiet day says "in what could be read".
  */
 export const renderDigest = (
   entries: readonly Classified[],
-  context: DigestContext
+  context: DigestContext,
+  listing?: Listing
 ): string => {
+  const truncated = listing?.truncated === true;
+  const notice = truncated ? [CUT_SHORT] : [];
   if (entries.length === 0) {
-    return NO_PULL_REQUESTS;
+    return truncated
+      ? ["ไม่พบ PR ในส่วนที่อ่านได้", ...notice].join("\n")
+      : NO_PULL_REQUESTS;
   }
   const needsOwner = sorted(
     entries.filter(({ verdict }) => verdict.bucket === "needs-owner"),
@@ -240,8 +260,12 @@ export const renderDigest = (
   const breakdown = healthyCounts(healthy);
   const rest = breakdown === "" ? "" : ` (${breakdown})`;
   if (lines.length === 0) {
-    return `ไม่มีอะไรต้องให้คุณดูวันนี้ มี ${healthy.length} อันปกติ${rest}`;
+    const where = truncated ? "ในส่วนที่อ่านได้" : "วันนี้";
+    return [
+      `ไม่มีอะไรต้องให้คุณดู${where} มี ${healthy.length} อันปกติ${rest}`,
+      ...notice,
+    ].join("\n");
   }
-  lines.push(`อีก ${healthy.length} อันปกติ${rest}`);
+  lines.push(`อีก ${healthy.length} อันปกติ${rest}`, ...notice);
   return lines.join("\n");
 };

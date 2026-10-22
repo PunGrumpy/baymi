@@ -114,7 +114,7 @@ export const runDigest = async (
   if (await deps.alreadyPosted(key, bangkokDayStart(now))) {
     return { key, status: "duplicate" };
   }
-  const text = renderDigest(entries, { owners });
+  const text = renderDigest(entries, { owners }, { truncated });
   await deps.post(text, key);
   return {
     counts: countBuckets(entries),
