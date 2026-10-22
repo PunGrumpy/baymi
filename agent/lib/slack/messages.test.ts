@@ -190,4 +190,36 @@ describe(hasKeyedMessage, () => {
     });
     await expect(result).rejects.toThrow("not_in_channel");
   });
+
+  describe("a history longer than the pages it will read", () => {
+    const endless = (pages: number) =>
+      Array.from({ length: pages }, (_, index) => ({
+        messages: [message()],
+        ok: true,
+        response_metadata: { next_cursor: `page${index + 2}` },
+      }));
+
+    it("throws rather than answer not posted yet", async () => {
+      const { calls, result } = ask({ "conversations.history": endless(6) });
+      await expect(result).rejects.toThrow("unknown");
+      expect(calls).toHaveLength(5);
+    });
+
+    it("still finds the key on the last page it reads", async () => {
+      const { result } = ask({
+        "conversations.history": [
+          ...endless(4),
+          { messages: [message("2026-10-23:abc")], ok: true },
+        ],
+      });
+      await expect(result).resolves.toBeTruthy();
+    });
+
+    it("is false, not an error, when the last page it reads is the last page there is", async () => {
+      const { result } = ask({
+        "conversations.history": [...endless(4), { messages: [], ok: true }],
+      });
+      await expect(result).resolves.toBeFalsy();
+    });
+  });
 });

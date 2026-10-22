@@ -110,7 +110,9 @@ export const postKeyedText = async (input: {
  * Throws when Slack will not say. A caller that cannot tell whether the
  * digest went out must not guess "no" and post a second one, so the failure
  * is loud. The usual cause is the bot not being a member of a channel, which
- * Slack reports as `not_in_channel`.
+ * Slack reports as `not_in_channel`. A history longer than the pages read is
+ * the same case: the key may sit on a page nobody looked at, so reaching the
+ * cap with a cursor still set throws instead of answering "not posted yet".
  */
 export const hasKeyedMessage = async (input: {
   readonly fetchImpl?: FetchLike;
@@ -156,5 +158,7 @@ export const hasKeyedMessage = async (input: {
       return false;
     }
   }
-  return false;
+  throw new Error(
+    `conversations.history: more than ${MAX_HISTORY_PAGES} pages since ${oldest}, so whether the key was posted is unknown`
+  );
 };
