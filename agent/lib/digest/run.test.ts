@@ -1,0 +1,211 @@
+import type { SessionAuthContext } from "eve/context";
+import { describe, expect, it, vi } from "vitest";
+
+import type { PullRequestFacts } from "#lib/digest/classify";
+import type { DigestDeps } from "#lib/digest/run";
+import { runDigest } from "#lib/digest/run";
+import { bangkokDayStart } from "#lib/digest/scope";
+
+/** What eve gives a schedule handler as `appAuth` (`docs/notes.md`). */
+const APP_AUTH: SessionAuthContext = {
+  attributes: {},
+  authenticator: "app",
+  principalId: "eve:app",
+  principalType: "runtime",
+};
+
+const MORNING = new Date("2026-10-23T01:00:00.000Z");
+
+const green = (number: number): PullRequestFacts => ({
+  author: { isBot: false, login: "PunGrumpy" },
+  baseFailingChecks: [],
+  baseRef: "main",
+  behind: false,
+  checks: [{ name: "Test", state: "success", timedOut: false }],
+  conflicting: false,
+  draft: false,
+  headRef: `feat/${number}`,
+  lastComment: null,
+  number,
+  repository: "PunGrumpy/baymi",
+  reviewDecision: "none",
+  threads: [],
+  title: "feat: a thing",
+});
+
+/**
+ * A Slack that remembers what was posted, like the real conversation does,
+ * so the second run of a test sees what the first one left.
+ */
+const fakes = (facts: readonly PullRequestFacts[] = [green(1)]) => {
+  const posted: { key: string; text: string }[] = [];
+  const deps = {
+    alreadyPosted: vi.fn<DigestDeps["alreadyPosted"]>((key) =>
+      Promise.resolve(posted.some((message) => message.key === key))
+    ),
+    installedRepositories: vi.fn<DigestDeps["installedRepositories"]>(() =>
+      Promise.resolve(["PunGrumpy/baymi", "PunGrumpy/nipa"])
+    ),
+    listOpenPullRequests: vi.fn<DigestDeps["listOpenPullRequests"]>(() =>
+      Promise.resolve({ facts, truncated: false })
+    ),
+    now: () => MORNING,
+    post: vi.fn<DigestDeps["post"]>((text, key) => {
+      posted.push({ key, text });
+      return Promise.resolve();
+    }),
+  } satisfies DigestDeps;
+  return { deps, posted };
+};
+
+describe(runDigest, () => {
+  it("reads, classifies, renders and posts one digest", async () => {
+    const { deps, posted } = fakes([green(1), green(2)]);
+    const outcome = await runDigest(deps, APP_AUTH);
+    expect(outcome).toMatchObject({
+      counts: { blocked: 0, healthy: 0, "needs-owner": 2 },
+      status: "posted",
+    });
+    expect(posted).toHaveLength(1);
+    expect(posted[0]?.text).toBe(
+      [
+        "https://github.com/PunGrumpy/baymi/pull/1 เขียวแล้ว รอคุณกด merge",
+        "https://github.com/PunGrumpy/baymi/pull/2 เขียวแล้ว รอคุณกด merge",
+        "อีก 0 อันปกติ",
+      ].join("\n")
+    );
+  });
+
+  it("searches the owners of the installed repositories, for today", async () => {
+    const { deps } = fakes();
+    await runDigest(deps, APP_AUTH);
+    expect(deps.listOpenPullRequests).toHaveBeenCalledWith(
+      "user:PunGrumpy is:pr is:open draft:false archived:false updated:>=2026-09-23"
+    );
+  });
+
+  it("posts nothing the second time it runs for the same data", async () => {
+    const { deps, posted } = fakes();
+    const first = await runDigest(deps, APP_AUTH);
+    const second = await runDigest(deps, APP_AUTH);
+    expect(first.status).toBe("posted");
+    expect(second.status).toBe("duplicate");
+    expect(posted).toHaveLength(1);
+    expect(deps.post).toHaveBeenCalledOnce();
+  });
+
+  it("gives the second run the same key as the first", async () => {
+    const { deps } = fakes();
+    const first = await runDigest(deps, APP_AUTH);
+    const second = await runDigest(deps, APP_AUTH);
+    expect(first.status).toBe("posted");
+    expect(first).toMatchObject({
+      key: expect.stringMatching(/^2026-10-23:/u),
+    });
+    expect(second).toMatchObject({ key: "key" in first ? first.key : "" });
+  });
+
+  it("looks for the key from midnight in Bangkok", async () => {
+    const { deps } = fakes();
+    await runDigest(deps, APP_AUTH);
+    expect(deps.alreadyPosted).toHaveBeenCalledWith(
+      expect.any(String),
+      bangkokDayStart(MORNING)
+    );
+  });
+
+  it("posts again when the set changed, which is a different digest", async () => {
+    const { deps, posted } = fakes([green(1)]);
+    await runDigest(deps, APP_AUTH);
+    deps.listOpenPullRequests.mockResolvedValueOnce({
+      facts: [green(1), green(2)],
+      truncated: false,
+    });
+    const second = await runDigest(deps, APP_AUTH);
+    expect(second.status).toBe("posted");
+    expect(posted).toHaveLength(2);
+  });
+
+  it("says so, once, on a day with no pull requests", async () => {
+    const { deps, posted } = fakes([]);
+    await runDigest(deps, APP_AUTH);
+    await runDigest(deps, APP_AUTH);
+    expect(posted.map(({ text }) => text)).toStrictEqual([
+      "ไม่มี PR ที่เปิดอยู่ในช่วง 30 วันนี้",
+    ]);
+  });
+
+  it("leaves a draft out", async () => {
+    const { deps, posted } = fakes([{ ...green(1), draft: true }]);
+    await runDigest(deps, APP_AUTH);
+    expect(posted[0]?.text).toBe("ไม่มี PR ที่เปิดอยู่ในช่วง 30 วันนี้");
+  });
+
+  it("does nothing when the App is installed nowhere", async () => {
+    const { deps, posted } = fakes();
+    deps.installedRepositories.mockResolvedValueOnce([]);
+    await expect(runDigest(deps, APP_AUTH)).resolves.toStrictEqual({
+      status: "nothing-installed",
+    });
+    expect(deps.listOpenPullRequests).not.toHaveBeenCalled();
+    expect(posted).toHaveLength(0);
+  });
+
+  it("does not post when it cannot tell whether it already did", async () => {
+    const { deps, posted } = fakes();
+    deps.alreadyPosted.mockRejectedValueOnce(
+      new Error("conversations.history: not_in_channel")
+    );
+    await expect(runDigest(deps, APP_AUTH)).rejects.toThrow("not_in_channel");
+    expect(posted).toHaveLength(0);
+  });
+
+  it("does not post when GitHub cannot be read", async () => {
+    const { deps, posted } = fakes();
+    deps.listOpenPullRequests.mockRejectedValueOnce(new Error("GitHub 502"));
+    await expect(runDigest(deps, APP_AUTH)).rejects.toThrow("GitHub 502");
+    expect(posted).toHaveLength(0);
+  });
+
+  it("lets a failed post throw, and the next run tries again", async () => {
+    const { deps, posted } = fakes();
+    deps.post.mockRejectedValueOnce(new Error("channel_not_found"));
+    await expect(runDigest(deps, APP_AUTH)).rejects.toThrow(
+      "channel_not_found"
+    );
+    expect(posted).toHaveLength(0);
+    const retry = await runDigest(deps, APP_AUTH);
+    expect(retry.status).toBe("posted");
+  });
+
+  describe("who it runs as", () => {
+    it.each([
+      [
+        "a person at the terminal",
+        {
+          attributes: {},
+          authenticator: "local-dev",
+          principalId: "local-dev",
+          principalType: "local-dev",
+        },
+      ],
+      [
+        "the security reviewer",
+        {
+          attributes: {},
+          authenticator: "github-webhook",
+          principalId: "github:baymiai",
+          principalType: "service",
+        },
+      ],
+    ] satisfies [string, SessionAuthContext][])(
+      "refuses %s",
+      async (_name, auth) => {
+        const { deps, posted } = fakes();
+        await expect(runDigest(deps, auth)).rejects.toThrow("the app");
+        expect(deps.installedRepositories).not.toHaveBeenCalled();
+        expect(posted).toHaveLength(0);
+      }
+    );
+  });
+});
