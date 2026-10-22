@@ -38,6 +38,14 @@ export const HEALTHY: readonly DigestPullRequest[] = [
   ),
   pullRequest("api", 90, "fix(auth): refresh tokens on 401", "CI passing"),
   pullRequest("docs", 12, "docs: explain the retry policy", "CI passing"),
+  // The Baymi security review is pending: PunGrumpy's standing preference is
+  // that this check never holds a pull request back, so it is healthy.
+  pullRequest(
+    "web",
+    46,
+    "fix(ui): align the empty state",
+    "CI passing, Baymi review pending"
+  ),
 ];
 
 /** A pull request that is green and waiting on the owner's merge. */

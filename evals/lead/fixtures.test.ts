@@ -55,3 +55,12 @@ describe(namedPullRequests, () => {
     ).toStrictEqual(["88", "41", "12"]);
   });
 });
+
+describe("the healthy rows", () => {
+  it("includes a pull request whose Baymi review is pending, which is not a blocker", () => {
+    const turn = digestTurn([], HEALTHY);
+    expect(turn).toContain("Baymi review pending");
+    expect(turn).toContain("Needs PunGrumpy: none");
+    expect(turn).toContain("Blocked: none");
+  });
+});
