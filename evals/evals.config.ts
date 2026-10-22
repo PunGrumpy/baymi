@@ -16,6 +16,13 @@ import { defineEvalConfig } from "eve/evals";
  * minute, and four evals at once reached it. One at a time is also what a
  * measurement needs: concurrency is the confound that invalidated two
  * earlier comparisons.
+ *
+ * Two tags: `fast` is on every eval, which is what the workflow runs, and
+ * `lead` marks the ones that pin what the engineering lead does (quiet when
+ * healthy, never merges, Thai to the owner, one memory round trip), so
+ * `--tag lead` runs just those. Each is a handful of turns with no review,
+ * so a run costs less than the review evals do; the judged ones add a Jev
+ * call each.
  */
 export default defineEvalConfig({
   judge: { model: typeSafeAi.evaluationModel("jev-latest") },
