@@ -148,6 +148,10 @@ export const isSlackHuman = (
   auth.principalType === "user" &&
   (teamId === undefined || auth.principalId.startsWith(`slack:${teamId}:`));
 
+/** The operator's own terminal: `localDev()` on the HTTP route, which also runs `eve eval`. */
+const isLocalDev = (auth: SessionAuthContext): boolean =>
+  auth.authenticator === "local-dev" && auth.principalType === "local-dev";
+
 /**
  * A person at the operator's own terminal or signed in to the Vercel team
  * that owns the deployment: the `[localDev(), vercelOidc()]` the HTTP route
@@ -155,7 +159,7 @@ export const isSlackHuman = (
  * a person.
  */
 const isOperator = (auth: SessionAuthContext): boolean =>
-  (auth.authenticator === "local-dev" && auth.principalType === "local-dev") ||
+  isLocalDev(auth) ||
   (auth.authenticator === "oidc" && auth.principalType === "user");
 
 /** A person delivered by the GitHub channel's signed webhook. */
@@ -273,12 +277,20 @@ export const memoryAccess = (
  * that. A diff can never start one, because the review turn reading it has no
  * remediation tool to call.
  *
+ * The operator's own terminal is the maintainer for memory and instructions
+ * but is refused here, as it always was: `eve eval` runs as `local-dev`, and
+ * an eval session must not be offered a subagent that opens a real pull
+ * request.
+ *
  * The app is refused today. It runs unattended on text strangers wrote, with
  * nobody to ask, so a remediation it started would open a pull request on a
  * log line's say-so. Opening it for a CI failure the app itself found is
  * unit C1's decision, and is a change to this predicate.
  */
 export const mayRemediate = (auth: SessionAuthContext | null): boolean => {
+  if (auth === null || isLocalDev(auth)) {
+    return false;
+  }
   const trustClass = classifyPrincipal(auth);
   return trustClass === "maintainer" || trustClass === "collaborator";
 };

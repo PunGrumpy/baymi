@@ -289,17 +289,18 @@ describe(mayRemediate, () => {
     expect(mayRemediate(null)).toBeFalsy();
   });
 
-  it("still admits a person on Slack and in the terminal", () => {
+  it("still admits a person on Slack", () => {
     expect(mayRemediate(auth({}))).toBeTruthy();
-    expect(
-      mayRemediate(
-        auth({
-          authenticator: "local-dev",
-          principalId: "local-dev",
-          principalType: "local-dev",
-        })
-      )
-    ).toBeTruthy();
+  });
+
+  it("refuses the operator's terminal, which is also where evals run", () => {
+    const localDev = auth({
+      authenticator: "local-dev",
+      principalId: "local-dev",
+      principalType: "local-dev",
+    });
+    expect(classifyPrincipal(localDev)).toBe("maintainer");
+    expect(mayRemediate(localDev)).toBeFalsy();
   });
 });
 
