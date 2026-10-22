@@ -1,7 +1,7 @@
 name: Evals
 
-# Evals drive the agent against the live model, so every run spends AI
-# Gateway credit. The triggers are narrow on purpose: a pull request that
+# Evals drive the agent against the live model, so every run spends
+# Anthropic credit. The triggers are narrow on purpose: a pull request that
 # changes the agent's behavior, or a manual run.
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ jobs:
        !contains(github.event.pull_request.labels.*.name, 'skip-evals'))
     runs-on: ubuntu-latest
     env:
-      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GITHUB_CONNECTOR: ${{ vars.GITHUB_CONNECTOR }}
       GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
       SLACK_CONNECTOR: ${{ vars.SLACK_CONNECTOR }}
@@ -54,14 +54,14 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # The runner has no Vercel OIDC token, so the gateway needs an API key,
-      # and the judge needs its TypeSafe key. Without either, calls fail for a
-      # reason that says nothing about the agent, so report it as a skip.
+      # The root agent calls Anthropic with its own key, and the judge needs its
+      # TypeSafe key. Without either, calls fail for a reason that says nothing
+      # about the agent, so report it as a skip.
       - name: Check for model credentials
         id: credentials
         run: |
           missing=""
-          [ -z "$AI_GATEWAY_API_KEY" ] && missing="AI_GATEWAY_API_KEY"
+          [ -z "$ANTHROPIC_API_KEY" ] && missing="ANTHROPIC_API_KEY"
           [ -z "$TYPESAFE_AI_API_KEY" ] && missing="${missing:+$missing or }TYPESAFE_AI_API_KEY"
           if [ -n "$missing" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
