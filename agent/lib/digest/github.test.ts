@@ -22,7 +22,9 @@ const statusContext = (context: string, state: string): RawContext => ({
   state,
 });
 
-const rollup = (...nodes: RawContext[]) => ({ contexts: { nodes } });
+const rollup = (...nodes: RawContext[]) => ({
+  contexts: { nodes, totalCount: nodes.length },
+});
 
 const commitWith = (...nodes: RawContext[]): RawPullRequest["commits"] => ({
   nodes: [{ commit: { statusCheckRollup: rollup(...nodes) } }],
@@ -57,8 +59,18 @@ interface PageInfo {
 
 const LAST_PAGE: PageInfo = { endCursor: null, hasNextPage: false };
 
-const page = (nodes: SearchNode[], pageInfo: PageInfo = LAST_PAGE) => ({
+interface GraphQLError {
+  readonly message: string;
+  readonly path?: readonly (number | string)[];
+}
+
+const page = (
+  nodes: SearchNode[],
+  pageInfo: PageInfo = LAST_PAGE,
+  errors: readonly GraphQLError[] = []
+) => ({
   data: { search: { nodes, pageInfo } },
+  ...(errors.length > 0 && { errors }),
 });
 
 type Answer =
@@ -181,6 +193,98 @@ describe(toFacts, () => {
       expect(toFacts(node({ commits })).checks).toStrictEqual([]);
     });
 
+    describe("that GitHub did not hand over", () => {
+      const readFailedFor = (
+        commits: RawPullRequest["commits"],
+        errored = false
+      ) => toFacts(node({ commits }), errored).readFailed;
+
+      it("are read when the commit has a rollup, or no checks at all", () => {
+        expect(
+          readFailedFor(commitWith(checkRun("a", "COMPLETED", "SUCCESS")))
+        ).toBeFalsy();
+        expect(
+          readFailedFor({ nodes: [{ commit: { statusCheckRollup: null } }] })
+        ).toBeFalsy();
+        expect(readFailedFor(commitWith())).toBeFalsy();
+      });
+
+      it("are unread when there is no head commit to read them from", () => {
+        expect(readFailedFor({ nodes: null })).toBeTruthy();
+        expect(readFailedFor({ nodes: [] })).toBeTruthy();
+      });
+
+      it("are unread when the rollup came back without its contexts", () => {
+        expect(
+          readFailedFor({
+            nodes: [
+              {
+                commit: {
+                  statusCheckRollup: {
+                    contexts: { nodes: null, totalCount: 3 },
+                  },
+                },
+              },
+            ],
+          })
+        ).toBeTruthy();
+      });
+
+      it("are unread when a context is missing from the list", () => {
+        const withHole: RawPullRequest["commits"] = {
+          nodes: [
+            {
+              commit: {
+                statusCheckRollup: {
+                  contexts: {
+                    nodes: [checkRun("a", "COMPLETED", "SUCCESS"), null],
+                    totalCount: 2,
+                  },
+                },
+              },
+            },
+          ],
+        };
+        expect(readFailedFor(withHole)).toBeTruthy();
+      });
+
+      it("are unread when there are more than the hundred it asked for", () => {
+        const cutShort: RawPullRequest["commits"] = {
+          nodes: [
+            {
+              commit: {
+                statusCheckRollup: {
+                  contexts: {
+                    nodes: [checkRun("a", "COMPLETED", "SUCCESS")],
+                    totalCount: 101,
+                  },
+                },
+              },
+            },
+          ],
+        };
+        expect(readFailedFor(cutShort)).toBeTruthy();
+      });
+
+      it("are unread when GitHub reported an error against the pull request", () => {
+        expect(
+          readFailedFor(commitWith(checkRun("a", "COMPLETED", "SUCCESS")), true)
+        ).toBeTruthy();
+      });
+
+      it("classify as blocked, not as green", () => {
+        const verdict = classifyPullRequest(
+          toFacts(node({ commits: { nodes: null } })),
+          { owners: ["PunGrumpy"] },
+          { siblingFailures: new Map(), stackedOn: false }
+        );
+        expect(verdict).toStrictEqual({
+          bucket: "blocked",
+          reason: { kind: "read-failed" },
+        });
+      });
+    });
+
     it("leaves out the Baymi security review, pending or not", () => {
       const checks = checksOf(
         checkRun("Typecheck", "COMPLETED", "SUCCESS"),
@@ -235,6 +339,20 @@ describe(toFacts, () => {
         target: { statusCheckRollup: null },
       };
       expect(toFacts(node({ baseRef })).baseFailingChecks).toStrictEqual([]);
+    });
+
+    it("is unreadable when the base's checks came back short", () => {
+      const baseRef: RawPullRequest["baseRef"] = {
+        target: {
+          statusCheckRollup: {
+            contexts: {
+              nodes: [checkRun("Test", "COMPLETED", "SUCCESS")],
+              totalCount: 150,
+            },
+          },
+        },
+      };
+      expect(toFacts(node({ baseRef })).baseFailingChecks).toBeNull();
     });
 
     it("is unreadable when the base branch is gone", () => {
@@ -372,6 +490,75 @@ describe(listOpenPullRequests, () => {
       token: "t",
     });
     expect(result.facts.map(({ number }) => number)).toStrictEqual([3]);
+  });
+
+  describe("errors that come with data", () => {
+    it("marks the pull request GitHub named, and no other, as unread", async () => {
+      const result = await listOpenPullRequests({
+        fetchImpl: respond(
+          page(
+            [node({ number: 1 }), node({ number: 2 }), node({ number: 3 })],
+            LAST_PAGE,
+            [
+              {
+                message: "Something went wrong while executing your query.",
+                path: ["search", "nodes", 1, "commits", "nodes", 0],
+              },
+            ]
+          )
+        ),
+        query: "q",
+        token: "t",
+      });
+      expect(result.facts.map(({ readFailed }) => readFailed)).toStrictEqual([
+        false,
+        true,
+        false,
+      ]);
+      expect(result.truncated).toBeFalsy();
+    });
+
+    it("counts a hit by its place in the page, which includes the ones skipped", async () => {
+      const result = await listOpenPullRequests({
+        fetchImpl: respond(
+          page([{}, node({ number: 2 })], LAST_PAGE, [
+            { message: "boom", path: ["search", "nodes", 1, "reviewThreads"] },
+          ])
+        ),
+        query: "q",
+        token: "t",
+      });
+      expect(result.facts).toMatchObject([{ number: 2, readFailed: true }]);
+    });
+
+    it("reads the listing as cut short when the error names no pull request", async () => {
+      const result = await listOpenPullRequests({
+        fetchImpl: respond(
+          page([node({ number: 1 })], LAST_PAGE, [
+            { message: "Something went wrong while executing your query." },
+          ])
+        ),
+        query: "q",
+        token: "t",
+      });
+      expect(result.truncated).toBeTruthy();
+      expect(result.facts).toMatchObject([{ number: 1, readFailed: false }]);
+    });
+
+    it("keeps that mark across the pages after it", async () => {
+      const result = await listOpenPullRequests({
+        fetchImpl: respond(
+          page([node({ number: 1 })], { endCursor: "c1", hasNextPage: true }, [
+            { message: "timeout", path: ["search"] },
+          ]),
+          page([node({ number: 2 })])
+        ),
+        query: "q",
+        token: "t",
+      });
+      expect(result.facts).toHaveLength(2);
+      expect(result.truncated).toBeTruthy();
+    });
   });
 
   it("throws on a bad status rather than report a short list as complete", async () => {

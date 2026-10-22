@@ -54,6 +54,7 @@ const facts = (
   headRef: "feat/thing",
   lastComment: null,
   number: 1,
+  readFailed: false,
   repository: "PunGrumpy/baymi",
   reviewDecision: "none",
   threads: [],
@@ -225,6 +226,66 @@ describe(classifyPullRequest, () => {
       expect(
         verdict({ checks: [passing("Lint"), failing("Typecheck")] })
       ).toMatchObject({ bucket: "blocked" });
+    });
+  });
+
+  describe("check data GitHub did not hand over", () => {
+    it("is blocked as unread, never green", () => {
+      expect(verdict({ checks: [], readFailed: true })).toStrictEqual({
+        bucket: "blocked",
+        reason: { kind: "read-failed" },
+      });
+    });
+
+    it("is unread even when the checks that did arrive passed", () => {
+      expect(
+        verdict({ checks: [passing("Typecheck")], readFailed: true })
+      ).toStrictEqual({ bucket: "blocked", reason: { kind: "read-failed" } });
+    });
+
+    it("is unread, not pending or waiting on a review, when those would be healthy", () => {
+      expect(
+        verdict({
+          checks: [pending("Test")],
+          readFailed: true,
+          reviewDecision: "changes-requested",
+        })
+      ).toMatchObject({ reason: { kind: "read-failed" } });
+      expect(
+        verdict({ readFailed: true }, { ...ALONE, stackedOn: true })
+      ).toMatchObject({ reason: { kind: "read-failed" } });
+    });
+
+    it("is unread for a bot's release pull request, which is healthy only when CI is known", () => {
+      expect(
+        verdict({
+          author: releaseBot,
+          readFailed: true,
+          title: "Version Packages",
+        })
+      ).toStrictEqual({ bucket: "blocked", reason: { kind: "read-failed" } });
+    });
+
+    it("yields to a check known to fail", () => {
+      expect(
+        verdict({ checks: [failing("Test")], readFailed: true })
+      ).toMatchObject({ reason: { failure: "diff", kind: "ci" } });
+    });
+
+    it("yields to a conflict and to a question, which do not depend on the checks", () => {
+      expect(verdict({ conflicting: true, readFailed: true })).toMatchObject({
+        reason: { kind: "conflict" },
+      });
+      expect(
+        verdict({
+          readFailed: true,
+          threads: [thread({ lastAuthor: reviewer })],
+        })
+      ).toMatchObject({ reason: { kind: "question" } });
+    });
+
+    it("is left out with the draft it belongs to", () => {
+      expect(verdict({ draft: true, readFailed: true })).toBeNull();
     });
   });
 

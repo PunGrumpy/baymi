@@ -180,6 +180,17 @@ describe(renderDigest, () => {
     });
   });
 
+  it("gives a pull request whose checks could not be read its own line", () => {
+    const text = renderDigest(
+      [entry(2, { bucket: "blocked", reason: { kind: "read-failed" } })],
+      context
+    );
+    expect(text.split("\n")).toStrictEqual([
+      `${linkOf(2)} อ่านสถานะ CI จาก GitHub ไม่สำเร็จ ยังไม่รู้ว่าเขียวหรือแดง ต้องเปิดดูเอง`,
+      "อีก 0 อันปกติ",
+    ]);
+  });
+
   it("lists at most three failing checks and counts the rest", () => {
     const text = renderDigest(
       [ci(1, "diff", ["a", "b", "c", "d", "e"])],

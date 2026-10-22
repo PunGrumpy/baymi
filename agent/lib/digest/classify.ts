@@ -65,6 +65,12 @@ export interface PullRequestFacts {
     readonly asksQuestion: boolean;
   } | null;
   readonly number: number;
+  /**
+   * Whether GitHub did not hand over everything about this pull request: its
+   * checks are missing or cut short, or it reported an error against it.
+   * What is missing is not green.
+   */
+  readonly readFailed: boolean;
   readonly repository: string;
   readonly reviewDecision: ReviewDecision;
   readonly threads: readonly ThreadFact[];
@@ -107,7 +113,8 @@ export type BlockedReason =
        */
       readonly peers: number;
     }
-  | { readonly kind: "bot-findings"; readonly threads: number };
+  | { readonly kind: "bot-findings"; readonly threads: number }
+  | { readonly kind: "read-failed" };
 
 export type HealthyReason =
   | "release"
@@ -288,22 +295,25 @@ export const classifyPullRequest = (
     return null;
   }
   const failing = facts.checks.filter((check) => check.state === "failure");
-  const ci: Verdict | null =
-    failing.length === 0
-      ? null
-      : {
-          bucket: "blocked",
-          reason: {
-            behind: facts.behind,
-            checks: failing.map((check) => check.name),
-            kind: "ci",
-            ...failureEvidence(
-              failing,
-              facts.baseFailingChecks,
-              relations.siblingFailures
-            ),
-          },
-        };
+  let ci: Verdict | null = null;
+  if (failing.length > 0) {
+    ci = {
+      bucket: "blocked",
+      reason: {
+        behind: facts.behind,
+        checks: failing.map((check) => check.name),
+        kind: "ci",
+        ...failureEvidence(
+          failing,
+          facts.baseFailingChecks,
+          relations.siblingFailures
+        ),
+      },
+    };
+  } else if (facts.readFailed) {
+    // Nothing known to fail is not the same as nothing failing.
+    ci = { bucket: "blocked", reason: { kind: "read-failed" } };
+  }
 
   if (isBotRelease(facts)) {
     return ci ?? healthy("release");

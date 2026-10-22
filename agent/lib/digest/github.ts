@@ -47,14 +47,14 @@ query Digest($query: String!, $after: String, $pageSize: Int!) {
         baseRef {
           target {
             ... on Commit {
-              statusCheckRollup { contexts(first: 100) { nodes { ...Context } } }
+              statusCheckRollup { contexts(first: 100) { totalCount nodes { ...Context } } }
             }
           }
         }
         commits(last: 1) {
           nodes {
             commit {
-              statusCheckRollup { contexts(first: 100) { nodes { ...Context } } }
+              statusCheckRollup { contexts(first: 100) { totalCount nodes { ...Context } } }
             }
           }
         }
@@ -99,7 +99,10 @@ const CONTEXT = z
 
 const ROLLUP = z
   .object({
-    contexts: z.object({ nodes: z.array(CONTEXT).nullable() }),
+    contexts: z.object({
+      nodes: z.array(CONTEXT).nullable(),
+      totalCount: z.int(),
+    }),
   })
   .nullable();
 
@@ -157,6 +160,11 @@ export type RawPullRequest = z.infer<typeof PULL_REQUEST>;
 /** One check run or status on a commit's rollup. */
 export type RawContext = NonNullable<z.infer<typeof CONTEXT>>;
 
+const GRAPHQL_ERROR = z.object({
+  message: z.string(),
+  path: z.array(z.union([z.string(), z.number()])).optional(),
+});
+
 const PAGE = z.object({
   data: z
     .object({
@@ -169,7 +177,7 @@ const PAGE = z.object({
       }),
     })
     .nullable(),
-  errors: z.array(z.object({ message: z.string() })).optional(),
+  errors: z.array(GRAPHQL_ERROR).optional(),
 });
 
 const person = (actor: z.infer<typeof ACTOR>): Person | null =>
@@ -218,12 +226,31 @@ const checkOf = (context: RawContext): CheckFact => {
   };
 };
 
-const checksOf = (rollup: z.infer<typeof ROLLUP> | undefined): CheckFact[] =>
-  (rollup?.contexts.nodes ?? [])
-    .filter((context) => context !== null)
-    .map(checkOf)
-    // The Baymi check reports and never gates a pull request.
-    .filter((check) => check.name !== CHECK_NAME);
+/**
+ * The checks on a rollup, or `null` when GitHub did not hand over every one:
+ * an empty or short list, a context it would not show, or more contexts than
+ * the first hundred. A commit with no checks has no rollup at all, which is
+ * an answer, not a gap.
+ */
+const readChecks = (rollup: z.infer<typeof ROLLUP>): CheckFact[] | null => {
+  if (rollup === null) {
+    return [];
+  }
+  const { nodes, totalCount } = rollup.contexts;
+  if (nodes === null || nodes.length < totalCount) {
+    return null;
+  }
+  const contexts = nodes.filter((context) => context !== null);
+  if (contexts.length < nodes.length) {
+    return null;
+  }
+  return (
+    contexts
+      .map(checkOf)
+      // The Baymi check reports and never gates a pull request.
+      .filter((check) => check.name !== CHECK_NAME)
+  );
+};
 
 const reviewDecisionOf = (decision: string | null): ReviewDecision => {
   switch (decision) {
@@ -252,22 +279,33 @@ const threadOf = (
   resolved: thread.isResolved,
 });
 
-/** One search result as the facts the classifier reads. */
-export const toFacts = (raw: RawPullRequest): PullRequestFacts => {
-  const head = raw.commits.nodes?.[0]?.commit.statusCheckRollup ?? null;
+/**
+ * One search result as the facts the classifier reads.
+ *
+ * @param errored - Whether GitHub reported an error against this node, which
+ * leaves whatever it did return incomplete.
+ */
+export const toFacts = (
+  raw: RawPullRequest,
+  errored = false
+): PullRequestFacts => {
+  const head = raw.commits.nodes?.[0];
+  const headChecks =
+    head === undefined ? null : readChecks(head.commit.statusCheckRollup);
   const base = raw.baseRef?.target?.statusCheckRollup;
+  const baseChecks = base === undefined ? null : readChecks(base);
   const comment = raw.comments.nodes?.[0];
   return {
     author: person(raw.author),
     baseFailingChecks:
-      base === undefined
+      baseChecks === null
         ? null
-        : checksOf(base)
+        : baseChecks
             .filter((check) => check.state === "failure")
             .map((check) => check.name),
     baseRef: raw.baseRefName,
     behind: raw.mergeStateStatus === "BEHIND",
-    checks: checksOf(head),
+    checks: headChecks ?? [],
     conflicting: raw.mergeable === "CONFLICTING",
     draft: raw.isDraft,
     headRef: raw.headRefName,
@@ -279,6 +317,7 @@ export const toFacts = (raw: RawPullRequest): PullRequestFacts => {
             author: person(comment.author),
           },
     number: raw.number,
+    readFailed: errored || headChecks === null,
     repository: raw.repository.nameWithOwner,
     reviewDecision: reviewDecisionOf(raw.reviewDecision),
     threads: (raw.reviewThreads.nodes ?? [])
@@ -304,18 +343,58 @@ export type FetchLike = (
 
 export interface OpenPullRequests {
   readonly facts: readonly PullRequestFacts[];
-  /** True when the page cap stopped the listing short. */
+  /**
+   * True when the listing stopped short: the page cap ended it, or GitHub
+   * reported an error it could not pin to one pull request (an aborted query),
+   * so pull requests may be missing.
+   */
   readonly truncated: boolean;
 }
+
+/** An error path that starts at one hit of the search: `search.nodes[i]...`. */
+const SEARCH_HIT_PATH = z.tuple(
+  [z.literal("search"), z.literal("nodes"), z.int()],
+  z.unknown()
+);
+
+interface Attribution {
+  readonly aborted: boolean;
+  readonly hits: ReadonlySet<number>;
+}
+
+/**
+ * Splits a page's GraphQL errors into the search hits they name and the rest.
+ * An error at `search.nodes[i]` leaves hit `i` incomplete, so that pull
+ * request is read as failed; an error anywhere else cannot be pinned to a
+ * pull request, so the listing as a whole is read as cut short.
+ */
+const attribute = (
+  errors: readonly z.infer<typeof GRAPHQL_ERROR>[]
+): Attribution => {
+  const hits = new Set<number>();
+  let aborted = false;
+  for (const { path } of errors) {
+    const hit = SEARCH_HIT_PATH.safeParse(path);
+    if (hit.success) {
+      hits.add(hit.data[2]);
+    } else {
+      aborted = true;
+    }
+  }
+  return { aborted, hits };
+};
 
 /**
  * Lists the open pull requests a search finds, across pages, as facts.
  *
  * @remarks
- * Throws on anything but a clean answer: a digest built from half a list
- * would tell the maintainer nothing needs them when something does. A node
- * that is not a pull request (the search type is `ISSUE`, and the query is
- * `is:pr`) comes back as an empty object and is skipped.
+ * Throws on anything but a usable answer: a digest built from nothing would
+ * tell the maintainer nothing needs them when something does. Partial answers
+ * are kept and labelled instead: a pull request GitHub reported an error
+ * against comes back with `readFailed`, and a listing that stopped short comes
+ * back `truncated`. A node that is not a pull request (the search type is
+ * `ISSUE`, and the query is `is:pr`) comes back as an empty object and is
+ * skipped.
  */
 export const listOpenPullRequests = async (input: {
   readonly fetchImpl?: FetchLike;
@@ -324,6 +403,7 @@ export const listOpenPullRequests = async (input: {
 }): Promise<OpenPullRequests> => {
   const { fetchImpl = fetch, query, token } = input;
   const facts: PullRequestFacts[] = [];
+  let aborted = false;
   let after: string | null = null;
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     // oxlint-disable-next-line eslint/no-await-in-loop -- pages are sequential by nature
@@ -353,14 +433,16 @@ export const listOpenPullRequests = async (input: {
         `GitHub could not search pull requests: ${reasons.join("; ") || "no data"}.`
       );
     }
+    const errors = attribute(parsed.errors ?? []);
+    aborted ||= errors.aborted;
     const { nodes, pageInfo } = parsed.data.search;
-    for (const node of nodes ?? []) {
+    for (const [index, node] of (nodes ?? []).entries()) {
       if ("number" in node) {
-        facts.push(toFacts(PULL_REQUEST.parse(node)));
+        facts.push(toFacts(PULL_REQUEST.parse(node), errors.hits.has(index)));
       }
     }
     if (!pageInfo.hasNextPage) {
-      return { facts, truncated: false };
+      return { facts, truncated: aborted };
     }
     after = pageInfo.endCursor;
   }

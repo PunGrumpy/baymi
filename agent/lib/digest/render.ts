@@ -146,10 +146,19 @@ const ciSentence = (
   }
 };
 
-const blockedSentence = (entry: Classified, reason: BlockedReason): string =>
-  reason.kind === "ci"
-    ? ciSentence(reason, entry.baseRef)
-    : `บอทเขียนความเห็นไว้ ${reason.threads} เธรดที่ยังไม่มีใครดู`;
+const blockedSentence = (entry: Classified, reason: BlockedReason): string => {
+  switch (reason.kind) {
+    case "ci": {
+      return ciSentence(reason, entry.baseRef);
+    }
+    case "read-failed": {
+      return "อ่านสถานะ CI จาก GitHub ไม่สำเร็จ ยังไม่รู้ว่าเขียวหรือแดง ต้องเปิดดูเอง";
+    }
+    default: {
+      return `บอทเขียนความเห็นไว้ ${reason.threads} เธรดที่ยังไม่มีใครดู`;
+    }
+  }
+};
 
 const HEALTHY_LABELS: Readonly<Record<HealthyReason, string>> = {
   release: "release PR",

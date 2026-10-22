@@ -27,6 +27,7 @@ const green = (number: number): PullRequestFacts => ({
   headRef: `feat/${number}`,
   lastComment: null,
   number,
+  readFailed: false,
   repository: "PunGrumpy/baymi",
   reviewDecision: "none",
   threads: [],
@@ -196,6 +197,19 @@ describe(runDigest, () => {
     expect(posted).toHaveLength(0);
     const retry = await runDigest(deps, APP_AUTH);
     expect(retry.status).toBe("posted");
+  });
+
+  it("lists a pull request whose checks could not be read on its own line, not as green", async () => {
+    const { deps, posted } = fakes([
+      green(1),
+      { ...green(2), checks: [], readFailed: true },
+    ]);
+    await runDigest(deps, APP_AUTH);
+    expect(posted[0]?.text.split("\n")).toStrictEqual([
+      "https://github.com/PunGrumpy/baymi/pull/1 เขียวแล้ว รอคุณกด merge",
+      "https://github.com/PunGrumpy/baymi/pull/2 อ่านสถานะ CI จาก GitHub ไม่สำเร็จ ยังไม่รู้ว่าเขียวหรือแดง ต้องเปิดดูเอง",
+      "อีก 0 อันปกติ",
+    ]);
   });
 
   describe("a stack whose lowest pull request breaks a check", () => {
