@@ -16,6 +16,8 @@ import {
  * a direct model's context window from the gateway catalog, so it is stated
  * here, and the token limit stands in for the cost limit, which only a
  * gateway-reported price can trip.
+ * There is no `reasoning` here on purpose: the effort is a provider option in
+ * `#lib/model`, and eve's `reasoning` is skipped when that is set.
  * `defaultTools: false` is what makes the agent read-only, and
  * ARCHITECTURE.md explains which tools come back and why the rest do not.
  */
@@ -30,5 +32,4 @@ export default defineAgent({
   model: LEAD_MODEL,
   modelContextWindowTokens: LEAD_CONTEXT_WINDOW_TOKENS,
   modelOptions: LEAD_MODEL_OPTIONS,
-  reasoning: "xhigh",
 });

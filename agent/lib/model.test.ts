@@ -29,8 +29,8 @@ describe("model", () => {
     expect(LEAD_CONTEXT_WINDOW_TOKENS).toBe(1_000_000);
   });
 
-  it("asks Anthropic for max effort on the lead, past eve's xhigh", () => {
-    expect(LEAD_MODEL_OPTIONS.providerOptions.anthropic.effort).toBe("max");
+  it("asks Anthropic for high effort on the lead, the cheapest that passed the review eval", () => {
+    expect(LEAD_MODEL_OPTIONS.providerOptions.anthropic.effort).toBe("high");
   });
 
   it("keeps the worker a gateway id, because a dynamic subagent takes nothing else", () => {
