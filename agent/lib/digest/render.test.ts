@@ -30,13 +30,14 @@ const healthy = (
 ) => entry(number, { bucket: "healthy", reason });
 const ci = (
   number: number,
-  failure: "diff" | "flake" | "stale-base" | "unknown",
+  failure: "base" | "diff" | "flake" | "siblings" | "unknown",
   checks: string[] = ["Typecheck"],
-  behind = false
+  behind = false,
+  peers = 0
 ) =>
   entry(number, {
     bucket: "blocked",
-    reason: { behind, checks, failure, kind: "ci" },
+    reason: { behind, checks, failure, kind: "ci", peers },
   });
 
 const linkOf = (number: number, repository = "PunGrumpy/baymi") =>
@@ -126,19 +127,57 @@ describe(renderDigest, () => {
   it("gives each failure class its own sentence", () => {
     const text = renderDigest(
       [
-        ci(1, "stale-base", ["Vercel"], true),
+        ci(1, "base", ["Vercel"], true),
         ci(2, "flake", ["Test"]),
         ci(3, "unknown", ["Lint"]),
+        ci(4, "diff", ["Typecheck"]),
+        ci(5, "siblings", ["Vercel"], false, 3),
       ],
       context
     );
     expect(text).toContain(
-      "CI ล้ม (`Vercel`) เหมือนที่ล้มบน `main` หรือบน PR อื่นในรีโปนี้ ไม่ใช่จาก diff และ branch ตามหลัง base"
+      "CI ล้ม (`Vercel`) ล้มบน `main` เหมือนกัน ไม่ใช่จาก diff และ branch ตามหลัง base"
     );
     expect(text).toContain(
       "CI ล้ม (`Test`) น่าจะ flake (timeout) ควร rerun ครั้งเดียว"
     );
     expect(text).toContain("CI ล้ม (`Lint`) ยังแยกสาเหตุไม่ได้ ต้องเปิด log ดู");
+    expect(text).toContain(
+      "CI ล้ม (`Typecheck`) จากโค้ดใน diff เอง ต้องแก้บน branch"
+    );
+    expect(text).toContain(
+      "CI ล้ม (`Vercel`) ล้มเหมือนกันบน PR อื่นในรีโปนี้อีก 3 อัน ยังแยกไม่ได้ว่าจาก diff หรือไม่ ต้องเปิด log ดู"
+    );
+  });
+
+  describe("a check that fails on other pull requests", () => {
+    it("names the base only when the base fails it too", () => {
+      const text = renderDigest(
+        [ci(1, "siblings", ["Vercel"], false, 3)],
+        context
+      );
+      expect(text).not.toContain("`main`");
+      expect(text).not.toContain("ไม่ใช่จาก diff");
+      expect(renderDigest([ci(1, "base", ["Vercel"])], context)).toContain(
+        "ล้มบน `main` เหมือนกัน"
+      );
+    });
+
+    it("says at least when the count is the fewest of several checks", () => {
+      const text = renderDigest(
+        [ci(1, "siblings", ["Vercel", "Test"], false, 2)],
+        context
+      );
+      expect(text).toContain("บน PR อื่นในรีโปนี้อีกอย่างน้อย 2 อัน");
+    });
+
+    it("keeps the behind note", () => {
+      const text = renderDigest(
+        [ci(1, "siblings", ["Vercel"], true, 2)],
+        context
+      );
+      expect(text).toContain("ต้องเปิด log ดู และ branch ตามหลัง base");
+    });
   });
 
   it("lists at most three failing checks and counts the rest", () => {

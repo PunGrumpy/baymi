@@ -198,6 +198,46 @@ describe(runDigest, () => {
     expect(retry.status).toBe("posted");
   });
 
+  describe("a stack whose lowest pull request breaks a check", () => {
+    // #54 breaks `test` on its own; #53, #55 and #56 sit above it and contain
+    // its commits, so they fail `test` too. main is green.
+    const failingAbove = (
+      number: number,
+      baseRef: string
+    ): PullRequestFacts => ({
+      ...green(number),
+      baseRef,
+      checks: [{ name: "test", state: "failure", timedOut: false }],
+    });
+    const stack = [
+      failingAbove(54, "main"),
+      failingAbove(53, "feat/54"),
+      failingAbove(55, "feat/53"),
+      failingAbove(56, "feat/55"),
+    ].map((facts) => ({ ...facts, headRef: `feat/${facts.number}` }));
+
+    it("tells every pull request, the culprit included, what it knows and no more", async () => {
+      const { deps, posted } = fakes(stack);
+      await runDigest(deps, APP_AUTH);
+      const lines = posted[0]?.text.split("\n") ?? [];
+      const sentence =
+        "CI ล้ม (`test`) ล้มเหมือนกันบน PR อื่นในรีโปนี้อีก 3 อัน ยังแยกไม่ได้ว่าจาก diff หรือไม่ ต้องเปิด log ดู";
+      expect(lines.slice(0, 4)).toStrictEqual(
+        [53, 54, 55, 56].map(
+          (number) =>
+            `https://github.com/PunGrumpy/baymi/pull/${number} ${sentence}`
+        )
+      );
+    });
+
+    it("never says not from the diff, nor that main fails, when main is green", async () => {
+      const { deps, posted } = fakes(stack);
+      await runDigest(deps, APP_AUTH);
+      expect(posted[0]?.text).not.toContain("ไม่ใช่จาก diff");
+      expect(posted[0]?.text).not.toContain("`main`");
+    });
+  });
+
   describe("who it runs as", () => {
     it.each([
       [

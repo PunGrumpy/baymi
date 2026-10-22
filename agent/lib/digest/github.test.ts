@@ -206,7 +206,7 @@ describe(toFacts, () => {
           })
         ),
         { owners: ["PunGrumpy"] },
-        { sharedFailures: new Set(), stackedOn: false }
+        { siblingFailures: new Map(), stackedOn: false }
       );
       expect(verdict).toStrictEqual({
         bucket: "needs-owner",

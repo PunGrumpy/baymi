@@ -77,7 +77,17 @@ export interface DigestContext {
   readonly owners: readonly string[];
 }
 
-export type FailureClass = "diff" | "flake" | "stale-base" | "unknown";
+/**
+ * What a failing check has in its favour, as a closed set. A check that fails
+ * on the base branch's head too (`base`) is not the diff's. One that only
+ * fails on other open pull requests (`siblings`) proves nothing about this
+ * one: in a stack the pull requests above a culprit fail the same check
+ * because they contain its commits, and a shared outage looks identical. With
+ * neither, the check passes everywhere else, so the diff is the suspect
+ * (`diff`), or `unknown` when the base could not be read. A runner timeout is
+ * a `flake` without any of that.
+ */
+export type FailureClass = "base" | "diff" | "flake" | "siblings" | "unknown";
 
 export type NeedsOwnerReason =
   | { readonly kind: "conflict" }
@@ -90,6 +100,12 @@ export type BlockedReason =
       readonly checks: readonly string[];
       readonly failure: FailureClass;
       readonly kind: "ci";
+      /**
+       * For `siblings`, how many other open pull requests of the repository
+       * fail the checks the base does not explain (the fewest, when there are
+       * several); zero for every other class.
+       */
+      readonly peers: number;
     }
   | { readonly kind: "bot-findings"; readonly threads: number };
 
@@ -159,30 +175,39 @@ const sameLogin = (left: string, right: string): boolean =>
 const isOwner = (person: Person, context: DigestContext): boolean =>
   context.owners.some((owner) => sameLogin(owner, person.login));
 
+/** How many other pull requests must fail a check before it is called shared. */
+const SHARED_FAILURE_PEERS = 2;
+
+interface FailureEvidence {
+  readonly failure: FailureClass;
+  readonly peers: number;
+}
+
 /**
- * Why CI is red: a runner timeout reads as a flake; a check that is red on
- * the base branch too, or on other open pull requests of the same repository,
- * is not this diff's; any other red is the diff's. When the base cannot be
- * read and nothing else vouches for a check, the class stays `unknown`
- * instead of guessing.
+ * Why CI is red. A runner timeout reads as a flake. A check red on the base
+ * branch too is the base's. A check red on other open pull requests of the
+ * same repository, and green on the base, is neither's: its siblings failing
+ * does not clear this diff. Any other red is the diff's, or unknown when the
+ * base cannot be read and nothing else vouches for the check.
  */
-const failureClass = (
+const failureEvidence = (
   failing: readonly CheckFact[],
   baseFailing: readonly string[] | null,
-  sharedFailures: ReadonlySet<string>
-): FailureClass => {
+  siblings: ReadonlyMap<string, number>
+): FailureEvidence => {
   if (failing.every((check) => check.timedOut)) {
-    return "flake";
+    return { failure: "flake", peers: 0 };
   }
   const onBase = new Set(baseFailing);
-  if (
-    failing.every(
-      (check) => onBase.has(check.name) || sharedFailures.has(check.name)
-    )
-  ) {
-    return "stale-base";
+  const notOnBase = failing.filter((check) => !onBase.has(check.name));
+  if (notOnBase.length === 0) {
+    return { failure: "base", peers: 0 };
   }
-  return baseFailing === null ? "unknown" : "diff";
+  const peers = notOnBase.map((check) => siblings.get(check.name) ?? 0);
+  if (peers.every((count) => count >= SHARED_FAILURE_PEERS)) {
+    return { failure: "siblings", peers: Math.min(...peers) };
+  }
+  return { failure: baseFailing === null ? "unknown" : "diff", peers: 0 };
 };
 
 /**
@@ -238,19 +263,16 @@ const healthy = (reason: HealthyReason): Verdict => ({
 /** What a pull request's neighbours say about it. */
 export interface Relations {
   /**
-   * The names of checks failing on at least two other open pull requests of
-   * the same repository: a failure that many diffs share is not any one diff's.
+   * For each check this pull request fails, how many other open pull requests
+   * of the same repository fail it too.
    */
-  readonly sharedFailures: ReadonlySet<string>;
+  readonly siblingFailures: ReadonlyMap<string, number>;
   /**
    * Whether another open pull request in the same repository has this one's
    * base as its head, which makes the base's merge the thing this one waits for.
    */
   readonly stackedOn: boolean;
 }
-
-/** How many other pull requests must fail a check before it is called shared. */
-const SHARED_FAILURE_PEERS = 2;
 
 /**
  * The bucket one pull request belongs to.
@@ -274,12 +296,12 @@ export const classifyPullRequest = (
           reason: {
             behind: facts.behind,
             checks: failing.map((check) => check.name),
-            failure: failureClass(
+            kind: "ci",
+            ...failureEvidence(
               failing,
               facts.baseFailingChecks,
-              relations.sharedFailures
+              relations.siblingFailures
             ),
-            kind: "ci",
           },
         };
 
@@ -361,15 +383,13 @@ export const classifyAll = (
   const classified: Classified[] = [];
   for (const entry of facts) {
     const repositoryCounts = counts.get(entry.repository);
-    const shared = new Set<string>();
+    const siblings = new Map<string, number>();
     for (const name of failingNames(entry)) {
       // The pull request itself is one of the failures counted.
-      if ((repositoryCounts?.get(name) ?? 0) - 1 >= SHARED_FAILURE_PEERS) {
-        shared.add(name);
-      }
+      siblings.set(name, (repositoryCounts?.get(name) ?? 0) - 1);
     }
     const verdict = classifyPullRequest(entry, context, {
-      sharedFailures: shared,
+      siblingFailures: siblings,
       stackedOn: heads.has(`${entry.repository}:${entry.baseRef}`),
     });
     if (verdict !== null) {

@@ -108,6 +108,19 @@ const needsOwnerSentence = (
     : `เขียวแล้ว รอคุณกด merge (โดย ${authorName(entry)})`;
 };
 
+/**
+ * How many other pull requests fail the same check, said with "at least" when
+ * the count is the fewest of several checks.
+ */
+const siblingCount = (peers: number, checks: number): string =>
+  checks > 1 ? `อีกอย่างน้อย ${peers} อัน` : `อีก ${peers} อัน`;
+
+/**
+ * One sentence per piece of evidence, and only the evidence that held. A
+ * check that fails on other pull requests but passes on the base says exactly
+ * that and stops short of "not from the diff": in a stack, the pull requests
+ * above a culprit fail because they contain it.
+ */
 const ciSentence = (
   reason: Extract<BlockedReason, { kind: "ci" }>,
   baseRef: string
@@ -118,8 +131,11 @@ const ciSentence = (
     case "diff": {
       return `CI ล้ม (${names}) จากโค้ดใน diff เอง ต้องแก้บน branch${behind}`;
     }
-    case "stale-base": {
-      return `CI ล้ม (${names}) เหมือนที่ล้มบน ${code(baseRef)} หรือบน PR อื่นในรีโปนี้ ไม่ใช่จาก diff${behind}`;
+    case "base": {
+      return `CI ล้ม (${names}) ล้มบน ${code(baseRef)} เหมือนกัน ไม่ใช่จาก diff${behind}`;
+    }
+    case "siblings": {
+      return `CI ล้ม (${names}) ล้มเหมือนกันบน PR อื่นในรีโปนี้${siblingCount(reason.peers, reason.checks.length)} ยังแยกไม่ได้ว่าจาก diff หรือไม่ ต้องเปิด log ดู${behind}`;
     }
     case "flake": {
       return `CI ล้ม (${names}) น่าจะ flake (timeout) ควร rerun ครั้งเดียว`;

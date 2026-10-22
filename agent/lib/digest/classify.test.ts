@@ -61,7 +61,7 @@ const facts = (
   ...overrides,
 });
 
-const ALONE: Relations = { sharedFailures: new Set(), stackedOn: false };
+const ALONE: Relations = { siblingFailures: new Map(), stackedOn: false };
 
 const verdict = (
   overrides: Partial<PullRequestFacts> = {},
@@ -88,7 +88,7 @@ describe(classifyPullRequest, () => {
   });
 
   describe("failing CI", () => {
-    it("is the diff's own when the check passes on the base branch", () => {
+    it("is the diff's own when the check passes on the base branch and everywhere else", () => {
       expect(
         verdict({ baseFailingChecks: [], checks: [failing("Typecheck")] })
       ).toStrictEqual({
@@ -98,11 +98,12 @@ describe(classifyPullRequest, () => {
           checks: ["Typecheck"],
           failure: "diff",
           kind: "ci",
+          peers: 0,
         },
       });
     });
 
-    it("is a stale base when every failing check fails on the base branch too", () => {
+    it("is the base's when every failing check fails on the base branch too", () => {
       expect(
         verdict({
           baseFailingChecks: ["Vercel", "Typecheck"],
@@ -114,8 +115,9 @@ describe(classifyPullRequest, () => {
         reason: {
           behind: true,
           checks: ["Vercel"],
-          failure: "stale-base",
+          failure: "base",
           kind: "ci",
+          peers: 0,
         },
       });
     });
@@ -129,13 +131,61 @@ describe(classifyPullRequest, () => {
       ).toMatchObject({ reason: { failure: "diff" } });
     });
 
-    it("is a stale base when other pull requests fail the same check", () => {
+    it("is a sibling failure when other pull requests fail the check and the base is green", () => {
       expect(
         verdict(
           { baseFailingChecks: [], checks: [failing("Vercel")] },
-          { ...ALONE, sharedFailures: new Set(["Vercel"]) }
+          { ...ALONE, siblingFailures: new Map([["Vercel", 3]]) }
         )
-      ).toMatchObject({ reason: { failure: "stale-base" } });
+      ).toStrictEqual({
+        bucket: "blocked",
+        reason: {
+          behind: false,
+          checks: ["Vercel"],
+          failure: "siblings",
+          kind: "ci",
+          peers: 3,
+        },
+      });
+    });
+
+    it("counts the fewest siblings when several checks fail only on siblings", () => {
+      expect(
+        verdict(
+          {
+            baseFailingChecks: [],
+            checks: [failing("Vercel"), failing("Typecheck")],
+          },
+          {
+            ...ALONE,
+            siblingFailures: new Map([
+              ["Typecheck", 2],
+              ["Vercel", 5],
+            ]),
+          }
+        )
+      ).toMatchObject({ reason: { failure: "siblings", peers: 2 } });
+    });
+
+    it("leaves out of the sibling count a check the base explains", () => {
+      expect(
+        verdict(
+          {
+            baseFailingChecks: ["Test"],
+            checks: [failing("Test"), failing("Vercel")],
+          },
+          { ...ALONE, siblingFailures: new Map([["Vercel", 4]]) }
+        )
+      ).toMatchObject({ reason: { failure: "siblings", peers: 4 } });
+    });
+
+    it("prefers the base when it explains every failing check, siblings or not", () => {
+      expect(
+        verdict(
+          { baseFailingChecks: ["Vercel"], checks: [failing("Vercel")] },
+          { ...ALONE, siblingFailures: new Map([["Vercel", 3]]) }
+        )
+      ).toMatchObject({ reason: { failure: "base", peers: 0 } });
     });
 
     it("is the diff's when only some failing checks are shared", () => {
@@ -145,7 +195,7 @@ describe(classifyPullRequest, () => {
             baseFailingChecks: [],
             checks: [failing("Vercel"), failing("Typecheck")],
           },
-          { ...ALONE, sharedFailures: new Set(["Vercel"]) }
+          { ...ALONE, siblingFailures: new Map([["Vercel", 3]]) }
         )
       ).toMatchObject({ reason: { failure: "diff" } });
     });
@@ -160,6 +210,15 @@ describe(classifyPullRequest, () => {
       expect(
         verdict({ baseFailingChecks: null, checks: [failing("Test")] })
       ).toMatchObject({ reason: { failure: "unknown" } });
+    });
+
+    it("lets siblings stand in when the base cannot be read", () => {
+      expect(
+        verdict(
+          { baseFailingChecks: null, checks: [failing("Vercel")] },
+          { ...ALONE, siblingFailures: new Map([["Vercel", 2]]) }
+        )
+      ).toMatchObject({ reason: { failure: "siblings", peers: 2 } });
     });
 
     it("blocks the pull request while a passing check sits beside the failing one", () => {
@@ -477,39 +536,47 @@ describe("a check that fails on several pull requests of one repository", () => 
       repository,
     });
 
-  it("is not the diff's once two other pull requests fail it", () => {
-    const result = classifyAll(
-      [withFailing(1), withFailing(2), withFailing(3)],
-      context
+  const reasons = (entries: readonly PullRequestFacts[]) =>
+    classifyAll(entries, context).map(
+      ({ verdict: v }) => v.bucket === "blocked" && v.reason
     );
+
+  it("is a sibling failure once two other pull requests fail it", () => {
     expect(
-      result.map(({ verdict: v }) => v.bucket === "blocked" && v.reason)
+      reasons([withFailing(1), withFailing(2), withFailing(3)])
     ).toMatchObject([
-      { failure: "stale-base" },
-      { failure: "stale-base" },
-      { failure: "stale-base" },
+      { failure: "siblings", peers: 2 },
+      { failure: "siblings", peers: 2 },
+      { failure: "siblings", peers: 2 },
+    ]);
+  });
+
+  it("counts every other pull request that fails it", () => {
+    expect(
+      reasons([withFailing(1), withFailing(2), withFailing(3), withFailing(4)])
+    ).toMatchObject([
+      { failure: "siblings", peers: 3 },
+      { failure: "siblings", peers: 3 },
+      { failure: "siblings", peers: 3 },
+      { failure: "siblings", peers: 3 },
     ]);
   });
 
   it("is still the diff's when only one other pull request fails it", () => {
-    const result = classifyAll([withFailing(1), withFailing(2)], context);
-    expect(
-      result.map(({ verdict: v }) => v.bucket === "blocked" && v.reason)
-    ).toMatchObject([{ failure: "diff" }, { failure: "diff" }]);
+    expect(reasons([withFailing(1), withFailing(2)])).toMatchObject([
+      { failure: "diff" },
+      { failure: "diff" },
+    ]);
   });
 
   it("does not count failures in another repository", () => {
-    const result = classifyAll(
-      [
+    expect(
+      reasons([
         withFailing(1),
         withFailing(2),
         withFailing(3, "PunGrumpy/other"),
         withFailing(4, "PunGrumpy/other"),
-      ],
-      context
-    );
-    expect(
-      result.map(({ verdict: v }) => v.bucket === "blocked" && v.reason)
+      ])
     ).toMatchObject([
       { failure: "diff" },
       { failure: "diff" },
@@ -519,12 +586,37 @@ describe("a check that fails on several pull requests of one repository", () => 
   });
 
   it("does not count a draft's failure", () => {
-    const result = classifyAll(
-      [withFailing(1), withFailing(2), { ...withFailing(3), draft: true }],
-      context
-    );
     expect(
-      result.map(({ verdict: v }) => v.bucket === "blocked" && v.reason)
+      reasons([
+        withFailing(1),
+        withFailing(2),
+        { ...withFailing(3), draft: true },
+      ])
     ).toMatchObject([{ failure: "diff" }, { failure: "diff" }]);
+  });
+
+  it("does not clear the culprit of a stack, whose pull requests above it fail the same check", () => {
+    // #54 breaks `test`; #53, #55 and #56 are stacked above it and contain its
+    // commits, so they fail `test` too. The base, main, is green.
+    const stacked = (number: number, baseRef: string) =>
+      facts({
+        baseFailingChecks: [],
+        baseRef,
+        checks: [failing("test")],
+        headRef: `feat/${number}`,
+        number,
+      });
+    const stack = [
+      stacked(54, "main"),
+      stacked(53, "feat/54"),
+      stacked(55, "feat/53"),
+      stacked(56, "feat/55"),
+    ];
+    expect(reasons(stack)).toMatchObject([
+      { failure: "siblings", peers: 3 },
+      { failure: "siblings", peers: 3 },
+      { failure: "siblings", peers: 3 },
+      { failure: "siblings", peers: 3 },
+    ]);
   });
 });
