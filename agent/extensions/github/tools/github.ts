@@ -4,8 +4,8 @@ import { defineDynamic } from "eve/tools";
 import { toolsForTurn } from "#lib/github/tools";
 
 /**
- * The extension's own tool resolver, with the CI tools taken out on a review
- * turn.
+ * The extension's own tool resolver, with the CI tools taken out of any turn
+ * that is not the maintainer's, a collaborator's or the app's.
  *
  * @remarks
  * This replaces the extension's `tools/github.ts` slot, which eve documents as

@@ -4,7 +4,8 @@ import type {
 } from "@github-tools/sdk/eve-runtime";
 import type { SessionAuthContext } from "eve/context";
 
-import { REVIEWER_PRINCIPAL } from "#lib/trust";
+import type { TrustClass } from "#lib/trust";
+import { classifyPrincipal } from "#lib/trust";
 
 /**
  * The GitHub tools this agent is mounted with, and nothing else.
@@ -89,29 +90,35 @@ export const GITHUB_TOOLS = [
   ...GITHUB_WRITES,
 ];
 
-/** Every tool that exists for CI, which a review turn is not offered. */
+/** Every tool that exists for CI, which a caller outside the allowlist is not offered. */
 export const GITHUB_CI_TOOLS: readonly string[] = [
   ...GITHUB_CI_READS,
   "rerunWorkflowRun",
 ];
 
 /**
- * Whether this turn is the app reviewing a pull request nobody asked it to
- * read.
+ * Who is offered the CI tools, by class. An allowlist, exhaustive over
+ * `TrustClass`: a new kind of caller does not compile until someone decides
+ * whether it sees job logs, and a caller nobody recognizes (`stranger`, `null`
+ * included) gets the original eleven.
  *
  * @remarks
- * `isUnattended` answers a wider question than this one. Unit L2 of the
- * engineering-lead program extends it to the app's own scheduled and CI
- * turns, and those are the turns that read CI, so withholding the CI tools
- * by `isUnattended` would take them from exactly the caller they are for.
- * This asks for the reviewer by name until the trust classifier lands.
+ * Keyed on the class, never on a principal string and never on
+ * `isUnattended`. The app is unattended and is the caller the CI tools are
+ * for, so a cut by `isUnattended` would take them from it. The reviewer reads
+ * a stranger's diff and has no use for them.
  */
-const isReviewTurn = (auth: SessionAuthContext | null): boolean =>
-  auth !== null && auth.principalId === REVIEWER_PRINCIPAL;
+const CI_TOOLS_BY_CLASS = {
+  app: true,
+  collaborator: true,
+  maintainer: true,
+  reviewer: false,
+  stranger: false,
+} as const satisfies Record<TrustClass, boolean>;
 
 /**
- * The mounted tools a turn is offered: all of them, less the CI tools on a
- * review turn.
+ * The mounted tools a turn is offered: all of them for the maintainer, a
+ * collaborator and the app, and the original eleven for everyone else.
  *
  * @remarks
  * The extension takes a static `include`, so the cut happens where its
@@ -123,10 +130,10 @@ export const toolsForTurn = <Tool>(
   tools: Readonly<Record<string, Tool>>,
   auth: SessionAuthContext | null
 ): Record<string, Tool> =>
-  isReviewTurn(auth)
-    ? Object.fromEntries(
+  CI_TOOLS_BY_CLASS[classifyPrincipal(auth)]
+    ? { ...tools }
+    : Object.fromEntries(
         Object.entries(tools).filter(
           ([name]) => !GITHUB_CI_TOOLS.includes(name)
         )
-      )
-    : { ...tools };
+      );
