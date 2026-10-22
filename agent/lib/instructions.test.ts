@@ -1,6 +1,20 @@
+import type { SessionAuthContext } from "eve/context";
 import { describe, expect, it } from "vitest";
 
-import { channelName, loadsOnChannel } from "#lib/instructions";
+import {
+  channelName,
+  loadsLeadOrders,
+  loadsOnChannel,
+} from "#lib/instructions";
+import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
+
+const auth = (overrides: Partial<SessionAuthContext>): SessionAuthContext => ({
+  attributes: {},
+  authenticator: "slack-webhook",
+  principalId: "slack:T0AAAAAAA:U0BBBBBBB",
+  principalType: "user",
+  ...overrides,
+});
 
 describe(channelName, () => {
   it("strips the prefix an authored channel reports", () => {
@@ -29,5 +43,39 @@ describe(loadsOnChannel, () => {
     // that belongs to another channel.
     expect(loadsOnChannel("github", "http")).toBeTruthy();
     expect(loadsOnChannel("slack")).toBeTruthy();
+  });
+});
+
+describe(loadsLeadOrders, () => {
+  it("withholds the lead's orders from the security review", () => {
+    const reviewer = auth({
+      authenticator: "github-webhook",
+      principalId: REVIEWER_PRINCIPAL,
+      principalType: "service",
+    });
+    expect(loadsLeadOrders(reviewer)).toBeFalsy();
+  });
+
+  it("loads them on the app's own scheduled turn, which is unattended too", () => {
+    const schedule = auth({
+      authenticator: "app",
+      principalId: "eve:app",
+      principalType: "runtime",
+    });
+    expect(isUnattended(schedule)).toBeTruthy();
+    expect(loadsLeadOrders(schedule)).toBeTruthy();
+  });
+
+  it("loads them for a person on Slack or GitHub", () => {
+    expect(loadsLeadOrders(auth({}))).toBeTruthy();
+    expect(
+      loadsLeadOrders(
+        auth({ authenticator: "github-webhook", principalId: "github:1234" })
+      )
+    ).toBeTruthy();
+  });
+
+  it("loads them when the turn has no caller, as on a direct API route", () => {
+    expect(loadsLeadOrders(null)).toBeTruthy();
   });
 });
