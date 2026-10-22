@@ -44,7 +44,7 @@ import type { AnchoredReview, ParsedReview } from "#lib/github/review";
 import { renderSummary, upsertSummary } from "#lib/github/summary";
 import { releaseSandbox } from "#lib/sandbox";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
-import { isUnattended, REVIEWER_PRINCIPAL } from "#lib/trust";
+import { isReviewer, REVIEWER_PRINCIPAL } from "#lib/trust";
 
 /** Which turns of this runtime settled an action; see `#lib/github/grounding`. */
 const grounding = createGroundingLedger();
@@ -334,7 +334,7 @@ const settleReply = async (
     readonly turnId: string;
   }
 ): Promise<void> => {
-  const unattended = isUnattended(ctx.session.auth.current);
+  const unattended = isReviewer(ctx.session.auth.current);
   const parsed = parseReview(reply.message);
   const holdBack = whyToHoldBack({
     grounded: grounding.isGrounded(reply.turnId),
@@ -437,7 +437,7 @@ export default githubChannel({
     },
     async "turn.failed"(event, channel, ctx) {
       logFailure("turn", event);
-      if (isUnattended(ctx.session.auth.current)) {
+      if (isReviewer(ctx.session.auth.current)) {
         // The session fails next and sends the one card; see reportFailedReview.
         return;
       }
