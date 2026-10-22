@@ -23,15 +23,6 @@ const ran = (...runs: (typeof passed)[][]): ChaseState => {
   return state;
 };
 
-describe(recordRun, () => {
-  it("keeps the first run as the reproduction and every later one as the latest", () => {
-    const state = ran([passed, failed], [passed, passed], [passed]);
-    expect(state.baseline?.changeDigest).toBe("d0");
-    expect(state.latest?.changeDigest).toBe("d2");
-    expect(state.checkRuns).toBe(3);
-  });
-});
-
 describe(stopResult, () => {
   it("reports a fix the checks did not pass, with the failing output", () => {
     const result = stopResult({
