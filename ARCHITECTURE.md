@@ -97,7 +97,7 @@ agent/
       archive.ts            # the repository tarball at one commit, downloaded in the runtime with a size cap
     slack/
       notify.ts             # the check-in card (Block Kit, Vercel's deployment-message shape) and the two-call Slack post (opens a DM when the target is a person)
-evals/                      # `eve eval`: scored checks against a live model, all tagged fast
+evals/                      # `eve eval`: scored checks against a live model, all tagged `fast`, and the ones that pin the engineering lead also `lead`
 docs/
   capability-placement.md   # where a new capability belongs, the two-layer rule, the review checklist
   notes.md                  # runtime and tooling behaviour that cost time to discover
