@@ -185,7 +185,6 @@ const whyNotThisPull = (
   }
   const plan = planPush({
     baseRepository: pull.base.repo.full_name,
-    canWrite: true,
     defaultBranch: "",
     headProtected: false,
     headRef: pull.head.ref,

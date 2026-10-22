@@ -5,7 +5,11 @@
  * @remarks
  * The chase was handed one pull request, so the one branch it may change is
  * that pull request's head, and only when the branch lives in the same
- * repository, is not the default branch, and is not protected. A protected
+ * repository, is not the default branch, and is not protected.
+ * Whether the App may write at all is not decided here: the repository's
+ * `permissions` field describes a person and reads all-false for an
+ * installation token (`docs/notes.md`), so a 403 on the push is what says
+ * so (`./deliver.ts`). A protected
  * or default branch gets a pull request from a `baymi/chase/` branch instead,
  * and a fork gets nothing: its branch is in a repository the App is not
  * installed on, so it can neither push there nor open a pull request into it.
@@ -26,8 +30,6 @@ export const chaseBranchName = (pullRequest: number, headSha: string): string =>
 export interface BranchFacts {
   /** `owner/repo` of the pull request's base. */
   readonly baseRepository: string;
-  /** Whether the App may write the repository's contents at all. */
-  readonly canWrite: boolean;
   readonly defaultBranch: string;
   /** Whether the head branch has a protection rule. */
   readonly headProtected: boolean;
@@ -45,7 +47,7 @@ export type PushPlan =
       readonly branch: string;
       readonly kind: "pull-request";
     }
-  | { readonly kind: "refuse"; readonly reason: "fork" | "no-write" };
+  | { readonly kind: "refuse"; readonly reason: "fork" };
 
 /** Decides where the fix goes, before anything is pushed. */
 export const planPush = (facts: BranchFacts): PushPlan => {
@@ -54,9 +56,6 @@ export const planPush = (facts: BranchFacts): PushPlan => {
     facts.headRepository.toLowerCase() === facts.baseRepository.toLowerCase();
   if (!sameRepository) {
     return { kind: "refuse", reason: "fork" };
-  }
-  if (!facts.canWrite) {
-    return { kind: "refuse", reason: "no-write" };
   }
   if (facts.headProtected || facts.headRef === facts.defaultBranch) {
     return {
@@ -78,10 +77,11 @@ export const fallBackToPullRequest = (facts: BranchFacts): PushPlan => ({
   kind: "pull-request",
 });
 
-/** Why a plan refused, in words the result carries. */
-export const REFUSAL_REASONS: Readonly<
-  Record<Extract<PushPlan, { kind: "refuse" }>["reason"], string>
-> = {
+/** Why nothing was pushed, in words the result carries. */
+export const REFUSAL_REASONS = {
   fork: "The head branch is in a fork, where the App can neither push nor open a pull request.",
-  "no-write": "The App cannot write to this repository.",
-};
+  "no-write":
+    "GitHub refused the App's push with 403: it cannot write to this repository.",
+} as const satisfies Readonly<
+  Record<Extract<PushPlan, { kind: "refuse" }>["reason"] | "no-write", string>
+>;

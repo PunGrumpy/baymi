@@ -99,7 +99,8 @@ const github = (repo: Repo = {}) => {
       return reply(200, {
         default_branch: "main",
         full_name: "PunGrumpy/baymi",
-        permissions: { push: true },
+        // What an installation token is told, measured: not what it may do.
+        permissions: { pull: false, push: false },
       });
     }
     if (path.includes("/branches/")) {
@@ -184,6 +185,17 @@ describe(deliverFix, () => {
     const send = github({ pushStatus: 422 });
     const result = await deliverFix(delivery(send));
     expect(result.status).toBe("opened-pull-request");
+  });
+
+  it("reports a repository the App cannot write when GitHub refuses the push with 403", async () => {
+    const send = github({ pushStatus: 403 });
+    const result = await deliverFix(delivery(send));
+    expect(result).toMatchObject({
+      reason:
+        "GitHub refused the App's push with 403: it cannot write to this repository.",
+      status: "failed",
+    });
+    expect(calls(send, "POST")).not.toContain("/repos/PunGrumpy/baymi/pulls");
   });
 
   it("pushes nothing to a fork's branch", async () => {

@@ -10,7 +10,6 @@ import type { BranchFacts } from "#lib/chase/branch";
 
 const facts = (overrides: Partial<BranchFacts> = {}): BranchFacts => ({
   baseRepository: "acme/widgets",
-  canWrite: true,
   defaultBranch: "main",
   headProtected: false,
   headRef: "feat/thing",
@@ -50,13 +49,6 @@ describe(planPush, () => {
     expect(planPush(facts({ headRepository: null }))).toStrictEqual({
       kind: "refuse",
       reason: "fork",
-    });
-  });
-
-  it("refuses a repository the App cannot write", () => {
-    expect(planPush(facts({ canWrite: false }))).toStrictEqual({
-      kind: "refuse",
-      reason: "no-write",
     });
   });
 

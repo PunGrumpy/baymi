@@ -122,7 +122,6 @@ const PULL = z.object({ head: z.object({ sha: z.string() }) });
 const REPOSITORY = z.object({
   default_branch: z.string(),
   full_name: z.string(),
-  permissions: z.object({ push: z.boolean() }).optional(),
 });
 const PULL_HEAD = z.object({
   head: z.object({
@@ -169,7 +168,6 @@ const readBranchFacts = async (
     branch.status === 200 ? BRANCH.safeParse(branch.body).data : undefined;
   return {
     baseRepository: repo.full_name,
-    canWrite: repo.permissions?.push ?? true,
     defaultBranch: repo.default_branch,
     headProtected: protection?.protected ?? true,
     headRef: head.head.ref,
@@ -209,6 +207,9 @@ const outcome = (
   reason: fields.reason,
   status: fields.status,
 });
+
+/** GitHub's answer to a write the token may not make. */
+const FORBIDDEN = 403;
 
 const SUPERSEDED =
   "The head moved while the chase worked, so the fix was not pushed on top of newer work.";
@@ -282,6 +283,12 @@ export const deliverFix = async (delivery: Delivery): Promise<ChaseResult> => {
       commits: shas,
       reason: `Pushed ${shas.length} commit${shas.length === 1 ? "" : "s"} to ${plan.branch}; its checks run again on the new head.`,
       status: "pushed",
+    });
+  }
+  if (pushed.status === FORBIDDEN) {
+    return outcome(delivery, {
+      reason: REFUSAL_REASONS["no-write"],
+      status: "failed",
     });
   }
   if ((await readHead(send, task)) !== task.headSha) {
