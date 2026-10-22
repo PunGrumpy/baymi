@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { BUDGET_REFUSALS } from "#lib/chase/budget";
+import { refusedResult } from "#lib/chase/result";
+import type { ChaseResult } from "#lib/chase/result";
 import { sendLineOnce } from "#lib/github/ci/deliver";
 import {
   fakeGitHub,
@@ -56,9 +59,11 @@ const harness = (answers: GitHubAnswers, delivered = true) => {
 const settle = (
   deps: SettleDeps,
   change: Partial<CiTurn> = {},
-  rerunAccepted = false
+  rerunAccepted = false,
+  chase: ChaseResult | null = null
 ) =>
   settleChase(deps, {
+    chase,
     owner: OWNER,
     pullRequest,
     repo: REPO,
@@ -183,6 +188,77 @@ describe(settleChase, () => {
     await settle(deps, change);
     await settle(deps, change);
     expect(sent).toHaveLength(1);
+  });
+
+  it("is a digest number, not a ping, when the chase pushed or opened its fix", async () => {
+    for (const status of ["pushed", "opened-pull-request"] as const) {
+      const { deps, sent } = harness({});
+      const chase = {
+        ...refusedResult({
+          headSha: HEAD,
+          pullRequest: pullRequest.url,
+          reason:
+            "Pushed 1 commit to feat/sum; its checks run again on the new head.",
+        }),
+        status,
+      };
+      // oxlint-disable-next-line eslint/no-await-in-loop -- one outcome at a time
+      await expect(
+        settle(deps, { kind: "own-code" }, false, chase)
+      ).resolves.toStrictEqual({
+        reason: "fixed",
+        said: false,
+        summary:
+          "Pushed 1 commit to feat/sum; its checks run again on the new head.",
+      });
+      expect(sent).toStrictEqual([]);
+    }
+  });
+
+  it("tells the maintainer the pull request is blocked on them when the chase failed, with why", async () => {
+    const { deps, sent } = harness({});
+    const chase = {
+      ...refusedResult({
+        headSha: HEAD,
+        pullRequest: pullRequest.url,
+        reason: "The second attempt still fails: test exited with 1.",
+      }),
+      status: "failed" as const,
+    };
+    await expect(
+      settle(deps, { kind: "own-code" }, false, chase)
+    ).resolves.toMatchObject({ reason: "chase-failed", said: true });
+    expect(sent[0]?.text).toContain("ไล่แก้อัตโนมัติไม่สำเร็จ รอคุณ");
+    expect(sent[0]?.text).toContain("The second attempt still fails");
+  });
+
+  it("stays quiet for a head another chase already took, and a head that moved", async () => {
+    const repeat = refusedResult({
+      headSha: HEAD,
+      pullRequest: pullRequest.url,
+      reason: BUDGET_REFUSALS["head-chased"],
+    });
+    const moved = { ...repeat, reason: "moved", status: "superseded" as const };
+    for (const chase of [repeat, moved]) {
+      const { deps, sent } = harness({});
+      // oxlint-disable-next-line eslint/no-await-in-loop -- one outcome at a time
+      await expect(
+        settle(deps, { kind: "own-code" }, false, chase)
+      ).resolves.toStrictEqual({ reason: "quiet", said: false });
+      expect(sent).toStrictEqual([]);
+    }
+  });
+
+  it("speaks when the budget refused the chase", async () => {
+    const { deps } = harness({});
+    const chase = refusedResult({
+      headSha: HEAD,
+      pullRequest: pullRequest.url,
+      reason: BUDGET_REFUSALS["daily-cap"],
+    });
+    await expect(
+      settle(deps, { kind: "own-code" }, false, chase)
+    ).resolves.toMatchObject({ reason: "chase-failed", said: true });
   });
 });
 

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { refusedResult } from "#lib/chase/result";
 import {
+  CHASE_TOOL,
   ciKey,
   createChaseLedger,
+  createChaseResultRecord,
   createRerunRecord,
   RERUN_TOOL,
 } from "#lib/github/ci/ledger";
@@ -149,5 +152,57 @@ describe(createRerunRecord, () => {
     }
     expect(record.accepted(chase("baymi", 100).key)).toBeFalsy();
     expect(record.accepted(chase("baymi", 101).key)).toBeTruthy();
+  });
+});
+
+describe(createChaseResultRecord, () => {
+  const output = refusedResult({
+    headSha: "h",
+    pullRequest: "https://github.com/PunGrumpy/baymi/pull/7",
+    reason: "Today's 3 chases are used up.",
+  });
+
+  it("keeps what the chase tool answered on each turn", () => {
+    const record = createChaseResultRecord();
+    record.note("turn-1", {
+      output: structuredClone(output),
+      status: "completed",
+      toolName: CHASE_TOOL,
+    });
+    expect(record.result("turn-1")).toStrictEqual(output);
+    expect(record.result("turn-2")).toBeNull();
+  });
+
+  it("ignores other tools, failed calls, and output that is not a result", () => {
+    const record = createChaseResultRecord();
+    record.note("a", {
+      output,
+      status: "completed",
+      toolName: "github__rerunWorkflowRun",
+    });
+    record.note("b", {
+      isError: true,
+      output,
+      status: "completed",
+      toolName: CHASE_TOOL,
+    });
+    record.note("c", {
+      output: "pushed",
+      status: "completed",
+      toolName: CHASE_TOOL,
+    });
+    expect(["a", "b", "c"].map((turn) => record.result(turn))).toStrictEqual([
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("forgets the oldest turn past its bound", () => {
+    const record = createChaseResultRecord(1);
+    record.note("old", { output, toolName: CHASE_TOOL });
+    record.note("new", { output, toolName: CHASE_TOOL });
+    expect(record.result("old")).toBeNull();
+    expect(record.result("new")).toStrictEqual(output);
   });
 });

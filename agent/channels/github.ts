@@ -28,7 +28,11 @@ import { sendLineOnce } from "#lib/github/ci/deliver";
 import type { LineDelivery } from "#lib/github/ci/deliver";
 import { startChase } from "#lib/github/ci/dispatch";
 import type { ChaseDeps } from "#lib/github/ci/dispatch";
-import { createChaseLedger, createRerunRecord } from "#lib/github/ci/ledger";
+import {
+  createChaseLedger,
+  createChaseResultRecord,
+  createRerunRecord,
+} from "#lib/github/ci/ledger";
 import { chaseFailedMessage } from "#lib/github/ci/line";
 import { logChase } from "#lib/github/ci/log";
 import { questionRoute, renderQuestions } from "#lib/github/ci/question";
@@ -42,6 +46,7 @@ import {
 } from "#lib/github/ci/route";
 import { withChaseSessions } from "#lib/github/ci/session";
 import { settleChase } from "#lib/github/ci/settle";
+import type { SettleOutcome } from "#lib/github/ci/settle";
 import { readCiTurn } from "#lib/github/ci/turn";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { githubCredentials } from "#lib/github/credentials";
@@ -80,6 +85,9 @@ const chases = createChaseLedger();
 
 /** Which chases saw their rerun call succeed; see `#lib/github/ci/ledger`. */
 const reruns = createRerunRecord();
+
+/** What each turn's chase tool answered; see `#lib/github/ci/ledger`. */
+const chaseResults = createChaseResultRecord();
 
 /** A refused row must never take the review with it; the permission can go away. */
 const announce = (result: CheckResult): void => {
@@ -227,6 +235,16 @@ const tellMaintainer = async (
   }
 };
 
+/** The log's account of how a turn ended. */
+const describeSettled = (outcome: SettleOutcome): string => {
+  if (outcome.said) {
+    return `said ${outcome.reason}, delivered=${outcome.delivered}`;
+  }
+  return outcome.reason === "fixed"
+    ? `fixed, CI rerunning (${outcome.summary})`
+    : outcome.reason;
+};
+
 /**
  * The end of an app turn on this channel: Slack, and never the pull request.
  *
@@ -254,11 +272,16 @@ const settleChaseTurn = async (
       request: asRequest(channel.github),
       send: tellMaintainer,
     },
-    { owner, pullRequest, repo, rerunAccepted: reruns.accepted(turn.key), turn }
+    {
+      chase: chaseResults.result(turn.key),
+      owner,
+      pullRequest,
+      repo,
+      rerunAccepted: reruns.accepted(turn.key),
+      turn,
+    }
   );
-  logChase(
-    `ci settled ${turn.key}: ${outcome.said ? `said ${outcome.reason}, delivered=${outcome.delivered}` : outcome.reason}`
-  );
+  logChase(`ci settled ${turn.key}: ${describeSettled(outcome)}`);
 };
 
 /**
@@ -578,12 +601,18 @@ const pullRequestChannel = githubChannel({
         grounding.note(turnKey(ctx, event.turnId), event.result);
       }
       if (event.result.kind === "tool-result") {
-        reruns.settled(ctx.session.id, {
+        const outcome = {
           callId: event.result.callId,
           isError: event.result.isError,
+          output: event.result.output,
           status: event.status,
           toolName: event.result.toolName,
-        });
+        };
+        reruns.settled(ctx.session.id, outcome);
+        const turn = readCiTurn(ctx.session.auth.current);
+        if (turn !== null) {
+          chaseResults.note(turn.key, outcome);
+        }
       }
     },
     "actions.requested"(event, _channel, ctx) {

@@ -1,3 +1,5 @@
+import { CHASE_RESULT } from "#lib/chase/result";
+import type { ChaseResult } from "#lib/chase/result";
 import type { RedEvent } from "#lib/github/ci/event";
 import type { CiTurn } from "#lib/github/ci/turn";
 import { parseRerunInput } from "#lib/github/rerun";
@@ -84,6 +86,8 @@ export const RERUN_TOOL = "github__rerunWorkflowRun";
 /** One settled action, in the shape `action.result` reports it. */
 export interface ActionOutcome {
   readonly isError?: boolean;
+  /** The tool's output, as the stream event carries it: JSON nobody has parsed yet. */
+  readonly output?: unknown;
   readonly status?: string;
   readonly toolName?: string;
 }
@@ -181,5 +185,50 @@ export const createRerunRecord = (
       accepted.add(key);
       bound(accepted);
     },
+  };
+};
+
+/** The tool a CI turn hands an own-code failure to (`agent/tools/chase_pull_request.ts`). */
+export const CHASE_TOOL = "chase_pull_request";
+
+export interface ChaseResultRecord {
+  readonly note: (turnId: string, outcome: ActionOutcome) => void;
+  /** What this turn's chase tool answered, or `null` when it was not called. */
+  readonly result: (turnId: string) => ChaseResult | null;
+}
+
+/**
+ * What each turn's chase tool answered, read off its `action.result`.
+ *
+ * @remarks
+ * The end of the turn renders the Slack line from it, so the outcome comes
+ * from the tool's output and not from the model's last message. In memory and
+ * per runtime like the records above: a cold start between the tool's result
+ * and the end of the turn loses it, and the turn then speaks as if no chase
+ * ran, which pings the maintainer about a pull request that may already be
+ * fixed rather than staying silent about one that is not.
+ */
+export const createChaseResultRecord = (
+  maxTurns: number = MAX_REMEMBERED_KEYS
+): ChaseResultRecord => {
+  const results = new Map<string, ChaseResult>();
+  return {
+    note(turnId, outcome) {
+      if (outcome.toolName !== CHASE_TOOL || outcome.isError === true) {
+        return;
+      }
+      const parsed = CHASE_RESULT.safeParse(outcome.output).data;
+      if (parsed === undefined) {
+        return;
+      }
+      results.set(turnId, parsed);
+      if (results.size > maxTurns) {
+        const [oldest] = results.keys();
+        if (oldest !== undefined) {
+          results.delete(oldest);
+        }
+      }
+    },
+    result: (turnId) => results.get(turnId) ?? null,
   };
 };

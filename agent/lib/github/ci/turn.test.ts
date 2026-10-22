@@ -167,4 +167,26 @@ describe(chaseBrief, () => {
     expect(brief).toContain("Do not comment on the pull request");
     expect(brief).toContain("Your final message is discarded");
   });
+
+  it("hands an own-code failure to the chase tool, once, with the pull request and the failure", () => {
+    const [brief] = chaseBrief(
+      turn({ evidence: 'expected "5"', kind: "own-code" }),
+      {
+        number: 7,
+        repository: "PunGrumpy/baymi",
+      }
+    );
+    expect(brief).toContain(
+      "Call `chase_pull_request` once with repository `PunGrumpy/baymi`, pullRequest 7, and failure \"test: expected '5'\""
+    );
+    expect(brief).toContain("Do not rerun anything");
+  });
+
+  it("does not mention the chase for any other kind", () => {
+    const [brief] = chaseBrief(turn(), {
+      number: 7,
+      repository: "PunGrumpy/baymi",
+    });
+    expect(brief).not.toContain("chase_pull_request");
+  });
 });

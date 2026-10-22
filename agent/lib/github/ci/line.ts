@@ -31,7 +31,7 @@ export interface CiLineInput {
   readonly attempt: number;
   /** Why the classifier said what it did, which words a caller the diff broke differently. */
   readonly failure?: FailureReason;
-  /** The log line or the check's summary; may be missing. */
+  /** The log line, the check's summary, or why the chase stopped; may be missing. */
   readonly evidence: string | null;
   /** The failed job, or the external check's name. */
   readonly job: string;
@@ -42,6 +42,7 @@ export interface CiLineInput {
 /** What each reason says before the job, short enough to read on a lock screen. */
 const HEADLINE: Readonly<Record<SpeakReason, string>> = {
   "cannot-rerun": "CI ล้มแบบ flake แต่ GitHub ไม่ให้รันใหม่",
+  "chase-failed": "CI ล้มจากโค้ดใน PR เอง ไล่แก้อัตโนมัติไม่สำเร็จ รอคุณ",
   "external-check": "เช็กภายนอกล้ม ไม่มี agent รันซ้ำหรืออ่าน log ได้",
   "own-code": "CI ล้มจากโค้ดใน PR เอง",
   "rerun-not-done": "CI ล้มแบบ flake แต่ยังไม่ได้รันใหม่",
