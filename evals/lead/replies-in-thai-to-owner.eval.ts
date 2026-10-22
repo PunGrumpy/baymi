@@ -1,7 +1,7 @@
 import { defineEval } from "eve/evals";
 import { satisfies } from "eve/evals/expect";
 
-import { ENGLISH_REPLY_SHARE, THAI_REPLY_SHARE, thaiShare } from "./language";
+import { ENGLISH_REPLY_SHARE, isThaiReply, thaiShare } from "./language";
 
 export default defineEval({
   description:
@@ -18,8 +18,8 @@ export default defineEval({
     t.check(
       owner.message,
       satisfies<string>(
-        (reply) => thaiShare(reply) >= THAI_REPLY_SHARE,
-        "the reply to PunGrumpy is written in Thai"
+        isThaiReply,
+        "the reply to PunGrumpy is written in Thai, from its first sentence"
       )
     ).label("owner: Thai");
 
