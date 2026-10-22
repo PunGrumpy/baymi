@@ -41,7 +41,7 @@ The proposal named Dependabot alerts. The SBOM and the global advisories need on
 
 ## What starts it
 
-A person asks: a mention of `@baymiai` on an issue or pull request, or a message in Slack. The root agent hands the request to the `remediation` subagent. `mayRemediate` in `agent/lib/trust.ts` decides whether the subagent is offered on a turn at all. It admits a person and refuses the reviewer principal, any service caller, and a turn with no caller. An unattended review never sees the subagent, so a diff cannot start one.
+A person asks: a mention of `@baymiai` on an issue or pull request, or a message in Slack. The root agent hands the request to the `remediation` subagent. `mayRemediate` in `agent/lib/trust.ts` decides whether the subagent is offered on a turn at all. It admits a person and refuses the reviewer principal, the app acting on its own schedule or on a CI event, any service caller, and a turn with no caller. The app is refused until a unit decides what a remediation it starts may rest on; today its turn reads text strangers wrote and nobody is there to ask. An unattended review never sees the subagent, so a diff cannot start one.
 
 A daily schedule over Dependabot alerts would come after phase 1 has worked by hand. It needs an eve schedule and the App's "Dependabot alerts: read" permission.
 

@@ -46,9 +46,24 @@ The delete never runs on an empty message. eve can reissue a model call that ret
 
 **Dynamic tools: executes stay inline.** eve's bundler registers a dynamic tool's `execute` as a durable step only when the function sits inline in the resolver body. A tool built by a factory, or returned from an implicit arrow, type-checks, works on a fresh session, and fails on a resumed one with `references step function "..." which is not registered`. `agent/tools/notify_maintainer.ts` is written the way it is for that reason, and so are the inline approval policies in `agent/extensions/github.ts`.
 
-**A memory scope that resolves to `null` disables the slot for that turn.** Recall does not run and the provider's tools are not offered. That is the whole mechanism keeping an unattended review out of the maintainer's memory (`agent/memory/file.ts`); there is no per-tool gate to add.
+**A memory scope that resolves to `null` disables the slot for that turn.** Recall does not run and the provider's tools are not offered. That is the whole mechanism keeping an unattended review out of the maintainer's memory (`agent/memory/file.ts`). Read-only is the exception, and it takes a wrapper on the provider, below.
 
-**Schedules do not fire in dev, and there are none here.** If one is added, `curl -X POST http://localhost:2000/eve/v1/dev/schedules/<name>` triggers it manually.
+**Schedules do not fire in dev, and there are none here.** If one is added, `curl -X POST http://localhost:2000/eve/v1/dev/schedules/<name>` triggers it manually and answers `{ "scheduleId", "sessionIds": [...] }`. A handler-form schedule that never calls `to(...).send(...)` starts no session, so `sessionIds` is empty.
+
+**A schedule's turn runs as `eve:app`, a `runtime` principal (measured on `eve dev` 0.62.0, 2026-10-23).** A throwaway markdown schedule fired through the route above started a session whose memory-scope resolver received this, with `current` and `initiator` the same object and the channel `{ "kind": "schedule", "metadata": {} }`:
+
+```json
+{
+  "attributes": {},
+  "authenticator": "app",
+  "principalId": "eve:app",
+  "principalType": "runtime"
+}
+```
+
+A handler-form schedule's `appAuth` logged the identical object. The handler form was not run through `to(...).send(...)`: every target is a channel that would post to a real Slack or GitHub conversation, and eve's docs say the session runs as the `auth` passed in, which is `appAuth`. The same probe on the HTTP route under `localDev()` gave `{ "authenticator": "local-dev", "principalId": "local-dev", "principalType": "local-dev" }` on channel `http`. `agent/lib/trust.ts` classifies `eve:app` as `app` (`APP_PRINCIPAL`); the test fixture is the object above. A Vercel OIDC token for this project is also `runtime`, under a `<issuer>:<subject>` id, so the class keys on the id and the type together. eve's `byPrincipal` scope returns `null` for `runtime`, which is why the memory slot is not scoped by it.
+
+**File memory can recall without offering its save and remove tools (2026-10-23).** A slot's scope picks the document and `provider.tools(ctx)` picks the tools, and `ctx.session.auth` reaches both. `withMemoryAccess` in `agent/lib/memory.ts` wraps `fileMemory()` so `tools()` returns `null` unless the caller may write, which leaves the app turn with recall and no tool that changes the document. File memory has no capture step, so nothing else writes. Measured on `eve dev` with Sonnet 5.5: a maintainer turn over HTTP saved a codeword and, asked which of its tools have `memory` in the name, answered `file__remove_memory` and `file__save_memory`; a schedule turn asked the same listed none and gave back the codeword from recalled memory. eve rebuilds a provider tool on replay by calling `provider.tools()` with the stored context, so the gate holds when a step replays. The alternatives do not fit: `agent/tools/file.ts` exporting `disableTool()` removes the tools on every turn, and a scope resolver has one answer per turn, not one per operation. Recalled memory reaches the model as a user-role message, and the model treated a recalled block that read like instructions as data, which is the posture `agent/instructions.md` asks for.
 
 **The CLI runs on Node, not on Bun, and refuses anything below 24.** Invoking it through `bun run` does not change that, so CI needs `actions/setup-node` alongside `setup-bun`.
 

@@ -5,7 +5,7 @@
 - **Name:** Baymi (`baymi`), a security-minded companion for one person's repositories, built on eve. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
 - **Maintainer:** PunGrumpy
 - **License:** MIT
-- **Last updated:** 2026-10-19
+- **Last updated:** 2026-10-23
 
 ## Overview
 
@@ -32,7 +32,7 @@ agent/
   extensions/
     github.ts               # @github-tools/eve-extension; mounts the 11 tools from lib/github/tools.ts with inline approval policies
   memory/
-    file.ts                 # eve's file memory on Vercel Blob; one shared "maintainer" scope, disabled on unattended turns
+    file.ts                 # eve's file memory on Vercel Blob; one shared "maintainer" scope: the maintainer reads and writes, the app only reads, everyone else gets none
   tools/
     list_installed_repositories.ts  # the repositories the App is installed on, which is the agent's whole scope
     list_dependency_changes.ts      # the dependencies a pull request adds, with the GitHub advisories against each added version
@@ -53,7 +53,7 @@ agent/
   lib/                      # the only place logic lives; every module has a colocated *.test.ts
     env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
     model.ts                # the AI Gateway model id every agent here runs on
-    trust.ts                # authorization, expressed once: trusted associations, the reviewer principal, Slack humans
+    trust.ts                # authorization, expressed once: classifyPrincipal puts every caller in one of five classes (maintainer, collaborator, reviewer, app, stranger); the predicates and the memory table read it
     instructions.ts         # channelName and loadsOnChannel: which fragment a session sees
     sandbox.ts              # releaseSandbox: the GitHub channel deletes a turn's sandbox after the reply posts, to stay inside the Hobby quotas
     failure.ts              # the notices a channel posts when a turn or session dies, and the log line that keeps the detail
@@ -97,7 +97,7 @@ docs/
 | Mentions | `agent/channels/github.ts` + `agent/lib/github/comments.ts` + `agent/instructions/github.ts` | Channel hook | `@baymiai` from an owner, member, or collaborator starts an attended session on the issue or pull request; everyone else is acknowledged without one. A second look reads the earlier findings back through `listPullRequestReviewThreads`, answers each in its thread with `replyToReviewComment` (fixed, still open, withdrawn), and puts new findings in the reply so they get their own inline comments. The channel posts the turn's completed message as the reply. The comment tools exist for writing on some other thread |
 | Slack companion | `agent/channels/slack.ts` + `agent/instructions/slack.ts` | Channel | DMs, mentions, and follow-ups in threads the agent owns, from humans of the workspace only (`isSlackHuman`, pinned to `SLACK_TEAM_ID` when set). There is no checkout here. The GitHub tools read pull requests, issues, and files, and the agent directs a request for a full review back to the pull request thread |
 | Check-ins | `agent/tools/notify_maintainer.ts` + `agent/lib/slack/notify.ts` | Tool (dynamic) | One Block Kit card to `SLACK_NOTIFY_CHANNEL`, a channel or the maintainer's own DM, on a critical or high finding. The card takes the shape of Vercel's deployment messages: a status dot and a bold linked headline, the summary and a `sha | repository | via Baymi security review | time`line in a colored bar, and two link buttons, "View pull request" and "Files changed". A one-line`text` fallback goes with it for notifications. Resolved per turn and present only on an unattended review when a target is configured. The tool reads the pull request it names from the auth the channel minted at dispatch (`pullRequestFromAuth`), never from the model, so a diff cannot redirect the check-in. The channel's failure handlers send the review-failed notice through the same delivery path |
-| Memory | `agent/memory/file.ts` | Memory | eve's `fileMemory()` on Vercel Blob, one document under a constant `maintainer` scope. The same person is `github:<id>` on a pull request and `slack:<team>:<id>` in a DM, and a preference stated in one place holds in the other. The scope resolves to `null` on unattended turns, which disables recall and the save tools there, so a diff can never write into what every later turn reads |
+| Memory | `agent/memory/file.ts` | Memory | eve's `fileMemory()` on Vercel Blob, one document under a constant `maintainer` scope. The same person is `github:<id>` on a pull request and `slack:<team>:<id>` in a DM, and a preference stated in one place holds in the other. The scope resolves to `null` for the reviewer, strangers and other people, which disables recall and the save tools there, so a diff can never write into what every later turn reads. The app, on a schedule or a CI event, gets the same document with recall only: `withMemoryAccess` (`agent/lib/memory.ts`) offers the save and remove tools to the maintainer alone |
 | Scope | `agent/tools/list_installed_repositories.ts` + `agent/lib/github/installation.ts` | Tool | There is no configured repository list. GitHub delivers webhooks and mints tokens only for repositories the App is installed on, and this tool reads that set back so the agent can say what it watches and refuse what it does not |
 | Dependency advisories | `agent/tools/list_dependency_changes.ts` + `agent/lib/github/dependencies.ts` | Tool | The agent matches no CVE itself. When the pull request's head has a root `bun.lock` or `package-lock.json`, the tool compares it at the base and the head and asks GitHub's global advisory database about the added versions, each advisory applied through the range that holds the version. GitHub's dependency review is the fallback, because the dependency graph does not parse `bun.lock` and is off on most of these repositories. All of it stays inside GitHub's API with the installation token the agent already holds, so the agent fetches no URL. The review decides from the checkout whether the code reaches the vulnerable function. When neither source answers, the tool says `available: false`, and the review goes on without it |
 | Remediation | `agent/subagents/remediation/` + `agent/lib/remediation/` + `mayRemediate` in `agent/lib/trust.ts` | Subagent (dynamic) | A person asks Baymi to fix a vulnerable package, and the root hands it to `remediation`, a declared subagent with its own tools and sandbox. `prepare_checkout` resolves the task from GitHub in the app runtime: the default branch's head, the versions the SBOM lists, the global advisories against them, and the version that clears them. It writes the archive into the sandbox and the task into durable state. The model bumps the package with lifecycle scripts off. `run_checks` runs the install and the project's checks with fixed commands and records the exit codes with a digest of the change. `submit_fix` pushes a `baymi/` branch through the Git Data API and opens a draft pull request headed verified or unverified mitigation, then deletes the sandbox. The token never enters the sandbox, and the repository and commit come from state, never from the model. `docs/remediation.md` has the design |
@@ -113,10 +113,24 @@ The remediation subagent is the one place with a shell, and it sits outside this
 
 `todo` and the built-in `agent` delegation stay off for a smaller reason: every tool in the prompt costs tokens on every turn (`docs/notes.md`), and a review is one pass with no side quests to track.
 
+## Who is acting
+
+`classifyPrincipal` in `agent/lib/trust.ts` is the only code that reads a principal's id, type or authenticator, and it puts every caller in one of five classes. The predicates callers use (`isUnattended`, `isReviewer`, `isApp`, `mayRemediate`) and the memory table (`memoryAccess`) are written over the classes, and the tables are exhaustive, so a new kind of caller does not compile until every table has a row for it.
+
+| Class | Who | Attended | Memory | Remediation |
+| --- | --- | --- | --- | --- |
+| `maintainer` | A person of the Slack workspace, the repository's owner on GitHub, or the operator at a terminal or in the Vercel team | yes | read and write | yes |
+| `collaborator` | Another owner, member or collaborator the mention gate admitted | yes | none | yes |
+| `reviewer` | `github:baymiai`, the constructed principal on a stranger's pull request | no | none | no |
+| `app` | `eve:app`, a `runtime` principal: a schedule fire, or a CI event the app starts itself | no | read only | no, until unit C1 |
+| `stranger` | No caller, a bot, a service, a Slack guest outside the pinned workspace | no | none | no |
+
+`isUnattended` is true for the reviewer and the app. What is specific to a review (the review instructions, the one reply posted as a GitHub review, the check-in) asks `isReviewer`, so the app's turns never inherit it. GitHub writes that need a person (`agent/lib/github/approval.ts`) are refused on every unattended turn, so the app cannot comment, open an issue, merge or approve; an idempotent write it may do, such as rerunning a workflow, is a policy of its own on that tool. The app principal is measured, not assumed: `docs/notes.md` has its shape.
+
 ## Data flow
 
 1. **A pull request opens** on an installed repository. GitHub posts `pull_request` at `/eve/v1/github`; `shouldReviewPullRequest` accepts `opened`, `ready_for_review` and `synchronize` from a human, the channel opens the check run on the head commit, and it starts a session under the reviewer principal. eve injects the diff and checks the head commit out. The agent loads `security-review`, reads the diff and the surrounding code, and writes its reply in the skill's format. The channel submits that reply as a GitHub review, one inline comment per finding on its line, and posts the summary as one comment on the pull request. If a finding is critical or high it calls `notify_maintainer` once, and the maintainer gets one line in Slack with a link. Every later push runs the review again on the new head, with a new check run, edits the summary comment rather than adding one, and submits a review only for findings that are new.
-2. **The maintainer mentions `@baymiai`** on that pull request, or any issue. `shouldDispatchComment` admits owners, members, and collaborators; the session (the same one, on a reviewed pull request) continues under their principal, so memory and the uncarded writes are available and the review fragment is not. The channel posts the reply in the thread.
+2. **The maintainer mentions `@baymiai`** on that pull request, or any issue. `shouldDispatchComment` admits owners, members, and collaborators; the session (the same one, on a reviewed pull request) continues under their principal, so the uncarded writes are available and the review fragment is not. Memory is available when they are the maintainer. The channel posts the reply in the thread.
 3. **The maintainer talks to Baymi in Slack.** A DM, a mention, or a reply in a thread it owns starts or resumes a session. It answers from the GitHub tools, remembers what it is told to keep, and points a request for a full review back at the pull request.
 4. **A review dies, or never ran.** The channel's failure handler recognizes an unattended review from the state (a pull request with no triggering comment), logs the detail, posts nothing in the pull request's timeline, fails the check run so the author can see the change went unreviewed, and sends the review-failed line to Slack when a target is configured. An unattended reply with no tool loop behind it is held back the same way. Two things mark it: no `action.result`, and a `stepIndex` the loop never advanced.
 5. **The maintainer asks for a fix.** A mention or a Slack message names a repository and a vulnerable package. The root hands it to `remediation`, which resolves the task from GitHub, bumps the package in its own sandbox, runs the project's checks, tries up to two code fixes when they fail, and opens a draft pull request on a `baymi/` branch. The root reports the link and whether the checks passed.

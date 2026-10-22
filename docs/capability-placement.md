@@ -30,7 +30,7 @@ The remediation subagent is how that decision was changed once, and it is the pa
 
 ## Instructions
 
-`agent/instructions.md` holds only what every session needs: identity, voice, the read-only posture, and the grounding rules. Anything that only applies on one channel is a fragment in `agent/instructions/<channel>.ts`, gated by `loadsOnChannel` from `agent/lib/instructions.ts`; anything that only applies on unattended turns is gated by `isUnattended`.
+`agent/instructions.md` holds only what every session needs: identity, voice, the read-only posture, and the grounding rules. Anything that only applies on one channel is a fragment in `agent/instructions/<channel>.ts`, gated by `loadsOnChannel` from `agent/lib/instructions.ts`; anything that only applies on review turns is gated by `isReviewer`, and anything that holds for every unattended turn (the review, and the app on its own clock) by `isUnattended`.
 
 When a section you are about to add to the root file starts with "in Slack" or "when reviewing", it is a fragment. When a procedure is long, optional, or only needed for one kind of request, it is a skill instead: instructions are always in context, skills are not.
 
