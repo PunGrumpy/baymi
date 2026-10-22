@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { FetchLike } from "#lib/github/installation";
-import type { TextFetch } from "#lib/remediation/lockfile";
+import type { TextFetch } from "#lib/github/lockfile";
 import { isTask, resolveTask, upgradeTarget } from "#lib/remediation/task";
 
 const ok = <T extends object>(body: T) =>

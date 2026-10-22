@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { TextFetch } from "#lib/remediation/lockfile";
+import type { TextFetch } from "#lib/github/lockfile";
 import {
   isExactVersion,
   versionsInBunLock,
   versionsInLockfiles,
   versionsInPackageLock,
-} from "#lib/remediation/lockfile";
+} from "#lib/github/lockfile";
 
 const BUN_LOCK = `{
   "lockfileVersion": 1,

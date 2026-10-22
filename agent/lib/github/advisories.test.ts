@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { FetchLike } from "#lib/github/installation";
-import type { Advisory } from "#lib/remediation/advisories";
+import type { Advisory } from "#lib/github/advisories";
 import {
   compareVersions,
   fixedVersion,
@@ -9,7 +8,8 @@ import {
   parsePurl,
   readAdvisories,
   versionsInSbom,
-} from "#lib/remediation/advisories";
+} from "#lib/github/advisories";
+import type { FetchLike } from "#lib/github/installation";
 
 const advisory = (
   firstPatchedVersion: string | null,

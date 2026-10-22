@@ -8,7 +8,7 @@ import {
   unavailableReason,
 } from "#lib/github/dependencies";
 import type { FetchLike } from "#lib/github/installation";
-import type { TextFetch } from "#lib/remediation/lockfile";
+import type { TextFetch } from "#lib/github/lockfile";
 
 const advisory = {
   advisory_ghsa_id: "GHSA-xxxx-yyyy-zzzz",

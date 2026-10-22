@@ -1,16 +1,16 @@
 import { z } from "zod";
 
-import type { FetchLike } from "#lib/github/installation";
-import type { Advisory, ResolvedPackage } from "#lib/remediation/advisories";
+import type { Advisory, ResolvedPackage } from "#lib/github/advisories";
 import {
   compareVersions,
   fixedVersion,
   readAdvisories,
   SBOM,
   versionsInSbom,
-} from "#lib/remediation/advisories";
-import type { TextFetch } from "#lib/remediation/lockfile";
-import { isExactVersion, versionsInLockfiles } from "#lib/remediation/lockfile";
+} from "#lib/github/advisories";
+import type { FetchLike } from "#lib/github/installation";
+import type { TextFetch } from "#lib/github/lockfile";
+import { isExactVersion, versionsInLockfiles } from "#lib/github/lockfile";
 
 /**
  * The remediation task, built from GitHub's data rather than from what the
