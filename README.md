@@ -62,8 +62,7 @@ Where you install the GitHub App decides what Baymi watches. There is no reposit
 
 - [Bun](https://bun.sh)
 - A Vercel account with the [Vercel CLI](https://vercel.com/docs/cli) authenticated (`vercel login`)
-- Nothing for the model: it runs on [Vercel AI Gateway](https://vercel.com/docs/ai-gateway), which the deployment's OIDC token authenticates. The model is `moonshotai/kimi-k2.7-code`, set in `agent/lib/model.ts`, which the gateway's free tier admits
-- `ANTHROPIC_API_KEY` in the server environment for the chase, which calls Claude Sonnet 5.5 on Anthropic directly. Without it everything else runs and the chase refuses to start
+- An [Anthropic API key](https://console.anthropic.com/settings/keys) as `ANTHROPIC_API_KEY`. The root agent calls Claude Opus 5.5 on Anthropic directly, with no gateway, set in `agent/lib/model.ts`, and the chase subagent calls Claude Sonnet 5.5 the same way
 
 ## Setup
 
@@ -129,9 +128,9 @@ The webhook surfaces need a deployment to receive events, so drive the agent thr
 env $(grep -v '^#' .env | grep -v '^$' | xargs) bun x eve info
 ```
 
-`vercel env pull` writes the `VERCEL_OIDC_TOKEN` the gateway needs locally into `.env.local`. It expires, so pull again when the model answers 401.
+The root's model needs only `ANTHROPIC_API_KEY`. `vercel env pull` writes the `VERCEL_OIDC_TOKEN` that the remediation subagent's gateway model, Vercel Blob and Vercel Sandbox need into `.env.local`. It expires, so pull again when one of them answers 401.
 
-`bun run validate` typechecks and runs discovery together. `bun run test` covers the logic under `agent/lib/`. `bun run eval` scores the agent against the live model and spends gateway credit: every eval is tagged `fast`, and `--tag lead` runs only the ones that pin the engineering lead (quiet when healthy, never merges, Thai to the owner, a memory round trip). `bun scripts/review-bench.ts <model>...` counts how many planted flaws a model finds, which is how to compare one before changing `agent/lib/model.ts`.
+`bun run validate` typechecks and runs discovery together. `bun run test` covers the logic under `agent/lib/`. `bun run eval` scores the agent against the live model and spends Anthropic credit: every eval is tagged `fast`, and `--tag lead` runs only the ones that pin the engineering lead (quiet when healthy, never merges, Thai to the owner, a memory round trip). `bun scripts/review-bench.ts <model>...` counts how many planted flaws a model finds, which is how to compare one before changing `agent/lib/model.ts`.
 
 ## Where the code lives
 
