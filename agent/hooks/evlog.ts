@@ -7,7 +7,7 @@ import { createPostHogDrain } from "evlog/posthog";
 import type { DrainDestination } from "#lib/drains";
 import { createFanOutDrain } from "#lib/drains";
 import { env } from "#lib/env";
-import { MODEL } from "#lib/model";
+import { LEAD_MODEL_ID } from "#lib/model";
 
 /** The PostHog event one turn becomes. */
 export const TURN_EVENT = "baymi_turn";
@@ -23,16 +23,14 @@ export const TURN_EVENT = "baymi_turn";
  * content. The identity is `eve.caller.principalId`, a GitHub or Slack id
  * rather than a name.
  *
- * The model answers through a gateway of the operator's choosing, so nothing
- * upstream counts its tokens; this is the only record of what a week of
- * reviews cost.
+ * The lead model is called on Anthropic directly and eve is never told a
+ * price, so this is the only per-turn record of what a week of reviews cost
+ * in tokens.
  *
- * `model` names the model on every event. evlog otherwise takes it from the
- * gateway model id eve reports at `session.started`, and a provider built
- * on a base URL reports none, which left `ai.model` empty on every turn
- * since the gateway moved. Cost stays absent on purpose: the gateway has no
- * per-token price, and a rate applied from memory is a number the next
- * report cannot reproduce.
+ * `model` names the lead on every event, because eve's `session.started`
+ * carries no model id for evlog to read, which left `ai.model` empty
+ * (`docs/notes.md`). Cost stays absent on purpose: a rate applied from memory
+ * is a number the next report cannot reproduce.
  */
 const posthogDrain = (apiKey: string) => {
   const config: PostHogConfig = {
@@ -65,7 +63,7 @@ const options: EvlogEveOptions = {
     env: { service: "baymi" },
     pretty: !process.env.VERCEL,
   },
-  model: MODEL,
+  model: LEAD_MODEL_ID,
   sessionEvent: true,
 };
 const drain = createFanOutDrain(destinations);

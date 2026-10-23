@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const VALID_ENV = {
+  ANTHROPIC_API_KEY: "test-anthropic-key",
   GITHUB_CONNECTOR: "github/baymi",
   GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   SLACK_CONNECTOR: "slack/baymi",
@@ -51,6 +52,15 @@ describe("env", () => {
     await expect(
       loadEnv({ SLACK_NOTIFY_CHANNEL: "#security" })
     ).rejects.toThrow("Invalid environment variables");
+  });
+
+  it("refuses to boot without the Anthropic key", async () => {
+    // Stubbed empty rather than omitted: `emptyStringAsUndefined` makes an
+    // empty value the same failure as a missing one, and it keeps a key in
+    // the developer's own shell from satisfying the test.
+    await expect(loadEnv({ ANTHROPIC_API_KEY: "" })).rejects.toThrow(
+      "Invalid environment variables"
+    );
   });
 
   it("checks a connector UID against its provider", async () => {
