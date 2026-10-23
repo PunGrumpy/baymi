@@ -2,7 +2,13 @@ import githubExtension from "@github-tools/eve-extension";
 import type { ApprovalContext, ApprovalStatus } from "eve/tools/approval";
 
 import { env } from "#lib/env";
-import { conversationWrite, gatedWrite } from "#lib/github/approval";
+import {
+  conversationWrite,
+  gatedWrite,
+  rerunWrite,
+} from "#lib/github/approval";
+import { mintInstallationToken } from "#lib/github/credentials";
+import { githubReader } from "#lib/github/rerun";
 import { GITHUB_TOOLS } from "#lib/github/tools";
 
 /**
@@ -13,6 +19,10 @@ import { GITHUB_TOOLS } from "#lib/github/tools";
  * durable descriptor for each one; a policy built by a factory has none and
  * fails a resumed session at `step.started`. The decisions themselves live
  * in `agent/lib/github/approval.ts`, which is what the tests reach.
+ *
+ * It is a directory mount so `tools/github.ts` can sit beside the declaration
+ * and take the CI tools out of a review turn's prompt; the namespace is still
+ * the directory's name.
  */
 export default githubExtension({
   connector: env.GITHUB_CONNECTOR,
@@ -26,5 +36,11 @@ export default githubExtension({
       gatedWrite(ctx.session.auth.current),
     replyToReviewComment: (ctx: ApprovalContext): ApprovalStatus =>
       conversationWrite(ctx.session.auth.current),
+    rerunWorkflowRun: (ctx: ApprovalContext): Promise<ApprovalStatus> =>
+      rerunWrite(
+        ctx.session.auth.current,
+        ctx.toolInput,
+        githubReader(mintInstallationToken)
+      ),
   },
 });
