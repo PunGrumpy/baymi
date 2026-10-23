@@ -225,6 +225,8 @@ After about 55 requests in two hours the proxy answered `502` with `MODEL_MESSAG
 
 ## Tooling
 
+**Unit tests run with `ANTHROPIC_API_KEY=test-placeholder` (2026-10-23).** `agent/lib/env.ts` validates the key when it is first imported, and the `Typecheck, lint, test` job sets none (CI hands the key only to the evals job), so any test that imports a module reaching `env.ts` failed at load: 16 tests in `channel.test.ts` and `trace.test.ts` on the lead stack (`eve/L5-ci-chase`), with `Invalid environment variables`. `vitest.config.ts` sets the placeholder in `test.env`, which only vitest reads, so `eve dev`, `eve eval` and `bun run validate` still fail by name without a real key. `test.env` overrides a key already in the shell, so a unit test cannot call the API with a developer's real key. `env.test.ts` stubs its own values and is unaffected. Reading the key lazily would have moved the failure from boot to the first review, which is the case `env.ts` exists to prevent.
+
 **`ultracite fix` rewrites test code, not only its formatting.** Observed: trailing `undefined` arguments dropped (which changes the call and breaks the types when the parameter is not optional), `toBe(false)` rewritten to `toBeFalsy()`, and `describe("name")` rewritten to `describe(name)` when an identifier of that name is in scope, which only type-checks if the identifier is a function. Make optional parameters optional, label `describe` blocks with phrases rather than identifiers, and read a file back after formatting it.
 
 ## Evals
