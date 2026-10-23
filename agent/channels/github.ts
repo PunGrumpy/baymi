@@ -52,6 +52,7 @@ import {
   NOT_A_REVIEW_CODE,
   UNGROUNDED_REVIEW_CODE,
 } from "#lib/github/grounding";
+import type { TurnKey } from "#lib/github/grounding";
 import {
   followUpContext,
   pullRequestFromAuth,
@@ -64,10 +65,15 @@ import { renderSummary, upsertSummary } from "#lib/github/summary";
 import { releaseSandbox } from "#lib/sandbox";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
 import type { SlackMessagePayload } from "#lib/slack/notify";
-import { isReviewer, REVIEWER_PRINCIPAL } from "#lib/trust";
+import { isApp, isReviewer, REVIEWER_PRINCIPAL } from "#lib/trust";
 
 /** Which turns of this runtime settled an action; see `#lib/github/grounding`. */
 const grounding = createGroundingLedger();
+
+const turnKey = (ctx: SessionContext, turnId: string): TurnKey => ({
+  sessionId: ctx.session.id,
+  turnId,
+});
 
 /** Which red checks this runtime already started a turn for, and already said something about. */
 const chases = createChaseLedger();
@@ -494,13 +500,13 @@ const settleReply = async (
   const reviewing = isReviewer(ctx.session.auth.current);
   const parsed = parseReview(reply.message);
   const holdBack = whyToHoldBack({
-    grounded: grounding.isGrounded(reply.turnId),
+    grounded: grounding.isGrounded(turnKey(ctx, reply.turnId)),
     parsed: parsed !== null,
     step: reply.step,
     unattended: reviewing,
   });
   if (holdBack !== null) {
-    if (grounding.reportOnce(reply.turnId)) {
+    if (grounding.reportOnce(turnKey(ctx, reply.turnId))) {
       logFailure("review", holdBack);
       await settleCheck(channel, failedOutcome(holdBack.code));
       await reportFailedReview(channel, { code: holdBack.code });
@@ -567,7 +573,10 @@ const pullRequestChannel = githubChannel({
   credentials: githubCredentials,
   events: {
     "action.result"(event, _channel, ctx) {
-      grounding.note(event.turnId, event.result);
+      // A chase reads and acts to fix CI, which says nothing about a review.
+      if (!isApp(ctx.session.auth.current)) {
+        grounding.note(turnKey(ctx, event.turnId), event.result);
+      }
       if (event.result.kind === "tool-result") {
         reruns.settled(ctx.session.id, {
           callId: event.result.callId,
