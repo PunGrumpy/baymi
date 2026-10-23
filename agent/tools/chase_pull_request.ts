@@ -25,7 +25,7 @@ import { REPOSITORY_PATTERN } from "#lib/github/dependencies";
 const DESCRIPTION =
   "Hand one pull request whose own code fails its checks to the chase, which reproduces the failure in its own sandbox, makes the smallest fix, runs the checks, and pushes atomic commits to the pull request's branch, or opens a pull request against it when it cannot push. " +
   "It never merges, rebases or force-pushes. It answers with the result: pushed, opened a pull request, or why it stopped. " +
-  "Call it once per pull request; at most three run a day and one per head.";
+  "Call it once, for the pull request this conversation is about: it refuses any other, and a conversation that is not about a pull request. At most three run a day and one per head.";
 
 /**
  * Today's chases, in this runtime's memory; `docs/notes.md` says why here.
