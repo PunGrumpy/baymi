@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { CiAssessment } from "#lib/github/ci/assess";
 import type { FailureKind, FailureReason } from "#lib/github/ci/classify";
 import { decideRerun } from "#lib/github/ci/decide";
+import { CHASE_TOOL } from "#lib/github/ci/ledger";
 import { APP_PRINCIPAL } from "#lib/trust";
 
 /**
@@ -127,7 +128,7 @@ export const readCiTurn = (auth: SessionAuthContext | null): CiTurn | null => {
  * @remarks
  * Shaped exactly like the principal eve gives a schedule (`docs/notes.md`),
  * which is what `classifyPrincipal` recognizes as `app`: unattended, no
- * memory write, no GitHub write that needs a person, no remediation. The
+ * memory write, no GitHub write that needs a person. The
  * sender's login and type are dropped: for a CI event the sender is whoever
  * pushed, and nothing here is on their authority.
  */
@@ -164,7 +165,10 @@ const REASON_NOTES: Partial<Record<FailureReason, string>> = {
  * boundary this turn runs inside, repeated because the GitHub channel's
  * fragment tells every turn on it that its reply is the comment.
  */
-export const chaseBrief = (turn: CiTurn): readonly string[] => {
+export const chaseBrief = (
+  turn: CiTurn,
+  pullRequest?: { readonly number: number; readonly repository: string }
+): readonly string[] => {
   const rerun = decideRerun({
     attempt: turn.attempt,
     classification: { kind: turn.kind },
@@ -183,6 +187,11 @@ export const chaseBrief = (turn: CiTurn): readonly string[] => {
       `- Check: ${turn.job}${turn.runId === null ? "" : `, workflow run ${turn.runId}`}, attempt ${turn.attempt}, ended ${turn.conclusion}, head ${turn.headSha.slice(0, 7)}.`,
       `- Classified by code as: ${turn.kind} (${turn.reason}). Evidence: ${evidence}${REASON_NOTES[turn.reason] ?? ""}`,
       `- ${action}`,
+      ...(turn.kind === "own-code" && pullRequest !== undefined
+        ? [
+            `- The diff's own code failed. Call \`${CHASE_TOOL}\` once with repository \`${pullRequest.repository}\`, pullRequest ${pullRequest.number}, and failure ${evidence === "none" ? `"${turn.job}"` : `"${turn.job}: ${turn.evidence.slice(0, QUOTE_MAX).replaceAll('"', "'")}"`}. It reproduces the failure in its own sandbox, fixes it, and pushes; whatever it answers, do not call it again.`,
+          ]
+        : []),
       "- The channel reads GitHub after you finish and tells PunGrumpy on Slack, in Thai, only when the pull request is blocked on them. You write nothing to Slack and nothing to the pull request.",
       "- Do not comment on the pull request, reply in its thread, open an issue, or ask a question. Your final message is discarded; keep it to one line saying what you did.",
     ].join("\n"),

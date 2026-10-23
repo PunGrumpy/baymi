@@ -148,8 +148,18 @@ export const isSlackHuman = (
   auth.principalType === "user" &&
   (teamId === undefined || auth.principalId.startsWith(`slack:${teamId}:`));
 
-/** The operator's own terminal: `localDev()` on the HTTP route, which also runs `eve eval`. */
-const isLocalDev = (auth: SessionAuthContext): boolean =>
+/**
+ * The operator's own terminal: `localDev()` on the HTTP route, which is also
+ * what `eve eval` runs as.
+ *
+ * @remarks
+ * `classifyPrincipal` calls this caller the maintainer, because the operator
+ * at a terminal is, for memory and for the lead's instructions. The
+ * capabilities that reach a real repository on their own (a workflow rerun,
+ * a chase) refuse it, so a local eval session cannot rerun a real workflow or
+ * push to a real pull request. `localDev()` is ignored in production.
+ */
+export const isLocalDev = (auth: SessionAuthContext): boolean =>
   auth.authenticator === "local-dev" && auth.principalType === "local-dev";
 
 /**
@@ -265,32 +275,37 @@ export const memoryAccess = (
 ): MemoryAccess => MEMORY_ACCESS[classifyPrincipal(auth, context)];
 
 /**
- * Whether this turn may start a remediation: a person asked, in a session
- * that is not an unattended one.
+ * Who may start a chase, by class. Exhaustive over `TrustClass`, so a new
+ * class does not compile without a row.
  *
  * @remarks
- * Remediation opens a pull request with code the sandbox changed, so it is
- * the one capability that writes to a repository. A person has to have asked
- * for it on this turn. The channels admit only trusted people to a session
- * at all (`shouldDispatchComment`, `isSlackHuman`), and this keeps out the
- * constructed reviewer principal, the app, and any service caller on top of
- * that. A diff can never start one, because the review turn reading it has no
- * remediation tool to call.
- *
- * The operator's own terminal is the maintainer for memory and instructions
- * but is refused here, as it always was: `eve eval` runs as `local-dev`, and
- * an eval session must not be offered a subagent that opens a real pull
- * request.
- *
- * The app is refused today. It runs unattended on text strangers wrote, with
- * nobody to ask, so a remediation it started would open a pull request on a
- * log line's say-so. Opening it for a CI failure the app itself found is
- * unit C1's decision, and is a change to this predicate.
+ * The app, because a red check on the maintainer's pull request is what a
+ * chase is for, and the CI turn that found it runs as the app. The
+ * maintainer, because they may ask for one by hand. Nobody else: a
+ * collaborator's request would push to the maintainer's branch on someone
+ * else's say-so, and the reviewer reads strangers' diffs.
  */
-export const mayRemediate = (auth: SessionAuthContext | null): boolean => {
-  if (auth === null || isLocalDev(auth)) {
-    return false;
-  }
-  const trustClass = classifyPrincipal(auth);
-  return trustClass === "maintainer" || trustClass === "collaborator";
-};
+const CHASE_BY_CLASS = {
+  app: true,
+  collaborator: false,
+  maintainer: true,
+  reviewer: false,
+  stranger: false,
+} as const satisfies Record<TrustClass, boolean>;
+
+/**
+ * Whether this turn may hand a pull request to the chase, which runs the
+ * pull request's code in a sandbox and pushes a fix to its branch.
+ *
+ * @remarks
+ * Refuses `local-dev` too (`isLocalDev`): the chase writes to a real
+ * repository, and a local eval runs as the terminal. The gating tool checks
+ * this, and the chase's own first tool checks it again.
+ */
+export const mayChase = (
+  auth: SessionAuthContext | null,
+  context: TrustContext = {}
+): boolean =>
+  auth !== null &&
+  !isLocalDev(auth) &&
+  CHASE_BY_CLASS[classifyPrincipal(auth, context)];

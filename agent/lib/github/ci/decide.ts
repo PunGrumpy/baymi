@@ -1,3 +1,6 @@
+import { BUDGET_REFUSALS } from "#lib/chase/budget";
+import { isFixed } from "#lib/chase/result";
+import type { ChaseResult } from "#lib/chase/result";
 import type { Classification } from "#lib/github/ci/classify";
 import { RERUNNABLE_CONCLUSIONS } from "#lib/github/rerun";
 
@@ -52,8 +55,10 @@ export const decideRerun = (input: {
  * Why Slack is told, one per way a pull request ends up needing the
  * maintainer or an agent that is not there yet.
  *
- * - `own-code`: the diff's own code failed. Until the unit that fixes it
- *   exists nobody else can clear it.
+ * - `own-code`: the diff's own code failed, and no chase result reached the
+ *   turn: the model did not hand it over, or the record was lost.
+ * - `chase-failed`: the chase ran, or was refused, and the pull request is
+ *   still red, so it is blocked on the maintainer.
  * - `stale-base`: the base fails the same job, so the fix is the base's,
  *   and the pull request picks it up on its next push.
  * - `second-failure`: it failed again after a rerun, so it was not a flake.
@@ -64,12 +69,35 @@ export const decideRerun = (input: {
  */
 export type SpeakReason =
   | "cannot-rerun"
+  | "chase-failed"
   | "external-check"
   | "own-code"
   | "rerun-not-done"
   | "second-failure"
   | "stale-base"
   | "unclassified";
+
+/**
+ * What an own-code failure comes to once the chase answered.
+ *
+ * @remarks
+ * A fix that was pushed, or opened as a pull request against the branch, is
+ * a number in the digest: the checks run again on their own. So is a head
+ * that moved, which has checks of its own coming, and a head that was
+ * already chased, whose first chase speaks for it. Everything else leaves
+ * the pull request red on the maintainer.
+ */
+const ownCodeSpeak = (chase: ChaseResult | null): SpeakReason | null => {
+  if (chase === null) {
+    return "own-code";
+  }
+  const repeat =
+    chase.status === "refused" &&
+    chase.reason === BUDGET_REFUSALS["head-chased"];
+  return isFixed(chase) || chase.status === "superseded" || repeat
+    ? null
+    : "chase-failed";
+};
 
 /**
  * Whether a person is told, and why; `null` when the digest can carry it.
@@ -81,6 +109,8 @@ export type SpeakReason =
  */
 export const decideSpeak = (input: {
   readonly attempt: number;
+  /** What the chase answered on this turn, for an own-code failure; `null` when nothing reached it. */
+  readonly chase?: ChaseResult | null;
   readonly classification: Pick<Classification, "kind">;
   readonly rerun: RerunDecision;
   /** Whether a rerun was observed on GitHub after the turn. */
@@ -91,7 +121,7 @@ export const decideSpeak = (input: {
       return "external-check";
     }
     case "own-code": {
-      return "own-code";
+      return ownCodeSpeak(input.chase ?? null);
     }
     case "stale-base": {
       return "stale-base";

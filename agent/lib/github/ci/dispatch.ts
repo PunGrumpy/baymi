@@ -119,7 +119,7 @@ export const startChase = async (
   const turn = ciTurn(assessment, key);
   return {
     auth: chaseAuth(source.authBase, turn),
-    context: chaseBrief(turn),
+    context: chaseBrief(turn, { number: event.pullRequest, repository: where }),
     title: `CI chase: ${where}#${event.pullRequest} ${event.checkName}`,
   };
 };

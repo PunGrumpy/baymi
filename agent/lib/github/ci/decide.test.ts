@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { BUDGET_REFUSALS } from "#lib/chase/budget";
+import { refusedResult } from "#lib/chase/result";
+import type { ChaseResult } from "#lib/chase/result";
 import { decideRerun, decideSpeak } from "#lib/github/ci/decide";
 
 describe(decideRerun, () => {
@@ -124,4 +127,50 @@ describe(decideSpeak, () => {
       ).toBe(reason);
     }
   );
+});
+
+const chaseResult = (
+  status: ChaseResult["status"],
+  reason = "why"
+): ChaseResult => ({
+  ...refusedResult({ headSha: "h", pullRequest: "u", reason }),
+  status,
+});
+
+describe("decideSpeak after a chase", () => {
+  const ownCode = (chase: ChaseResult | null) =>
+    decideSpeak({
+      attempt: 1,
+      chase,
+      classification: { kind: "own-code" },
+      rerun: NO_RERUN,
+      rerunTriggered: false,
+    });
+
+  it("is quiet once the fix is pushed or opened: the digest counts it", () => {
+    expect(ownCode(chaseResult("pushed"))).toBeNull();
+    expect(ownCode(chaseResult("opened-pull-request"))).toBeNull();
+  });
+
+  it("says the pull request is blocked on the maintainer when the chase did not fix it", () => {
+    for (const status of [
+      "failed",
+      "not-reproduced",
+      "partial",
+      "refused",
+    ] as const) {
+      expect(ownCode(chaseResult(status))).toBe("chase-failed");
+    }
+  });
+
+  it("is quiet for a moved head and for a head another chase took", () => {
+    expect(ownCode(chaseResult("superseded"))).toBeNull();
+    expect(
+      ownCode(chaseResult("refused", BUDGET_REFUSALS["head-chased"]))
+    ).toBeNull();
+  });
+
+  it("says own-code when no chase answered", () => {
+    expect(ownCode(null)).toBe("own-code");
+  });
 });

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { isFixed } from "#lib/chase/result";
+import type { ChaseResult } from "#lib/chase/result";
 import type { GitHubRequest } from "#lib/github/checks";
 import { decideRerun, decideSpeak } from "#lib/github/ci/decide";
 import type { SpeakReason } from "#lib/github/ci/decide";
@@ -55,7 +57,13 @@ export type SettleOutcome =
       readonly said: true;
     }
   | { readonly reason: "duplicate"; readonly said: false }
-  | { readonly reason: "quiet"; readonly said: false };
+  | { readonly reason: "quiet"; readonly said: false }
+  | {
+      /** The chase pushed a fix or opened one; the checks run again on their own. */
+      readonly reason: "fixed";
+      readonly said: false;
+      readonly summary: string;
+    };
 
 export interface SettleDeps {
   readonly ledger: ChaseLedger;
@@ -70,10 +78,24 @@ export interface SettleDeps {
   ) => Promise<LineDelivery>;
 }
 
+/** The free text after the headline: why the chase stopped, or the log line. */
+const evidenceFor = (
+  reason: SpeakReason,
+  turn: CiTurn,
+  chase: ChaseResult | null
+): string | null => {
+  if (reason === "chase-failed" && chase !== null) {
+    return chase.reason;
+  }
+  return turn.evidence === "" ? null : turn.evidence;
+};
+
 /** Decides and, when someone needs to hear, sends the one line. */
 export const settleChase = async (
   deps: SettleDeps,
   input: {
+    /** What the chase tool answered on this turn, or `null` when it was not called or its answer was lost. */
+    readonly chase: ChaseResult | null;
     readonly owner: string;
     readonly pullRequest: PullRequestRef;
     /** Whether the turn saw its own rerun call succeed, which settles it without a read. */
@@ -92,14 +114,18 @@ export const settleChase = async (
     rerun.rerun &&
     (input.rerunAccepted ||
       (await rerunTriggered(deps.request, { owner, repo, turn })));
+  const { chase } = input;
   const reason = decideSpeak({
     attempt: turn.attempt,
+    chase,
     classification: { kind: turn.kind },
     rerun,
     rerunTriggered: triggered,
   });
   if (reason === null) {
-    return { reason: "quiet", said: false };
+    return chase !== null && isFixed(chase)
+      ? { reason: "fixed", said: false, summary: chase.reason }
+      : { reason: "quiet", said: false };
   }
   // The ledger catches a repeat on this instance; Slack's own history, one on any other.
   if (!deps.ledger.claimReport(turn.key)) {
@@ -108,7 +134,7 @@ export const settleChase = async (
   const delivery = await deps.send(
     ciSlackMessage({
       attempt: turn.attempt,
-      evidence: turn.evidence === "" ? null : turn.evidence,
+      evidence: evidenceFor(reason, turn, chase),
       failure: turn.reason,
       job: turn.job,
       pullRequest,

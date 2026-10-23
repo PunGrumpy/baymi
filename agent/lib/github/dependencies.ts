@@ -1,13 +1,13 @@
 import { z } from "zod";
 
+import { readAdvisoriesForPackages } from "#lib/github/advisories";
 import type { FetchLike } from "#lib/github/installation";
-import { readAdvisoriesForPackages } from "#lib/remediation/advisories";
-import type { LockedPackage, TextFetch } from "#lib/remediation/lockfile";
+import type { LockedPackage, TextFetch } from "#lib/github/lockfile";
 import {
   LOCKFILES,
   packagesInLockfile,
   readLockfile,
-} from "#lib/remediation/lockfile";
+} from "#lib/github/lockfile";
 
 /**
  * The dependencies a pull request adds, and the published advisories against

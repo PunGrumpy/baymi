@@ -9,8 +9,9 @@ import {
   isReviewer,
   isSlackHuman,
   isTrustedGitHubAssociation,
+  isLocalDev,
   isUnattended,
-  mayRemediate,
+  mayChase,
   memoryAccess,
   REVIEWER_PRINCIPAL,
   TRUST_CLASSES,
@@ -273,37 +274,6 @@ describe(memoryAccess, () => {
   });
 });
 
-describe(mayRemediate, () => {
-  it("admits a person, whoever asks", () => {
-    expect(mayRemediate(FIXTURES.maintainer)).toBeTruthy();
-    expect(mayRemediate(FIXTURES.collaborator)).toBeTruthy();
-  });
-
-  it("refuses the reviewer, the app, a service, or nobody", () => {
-    expect(mayRemediate(FIXTURES.reviewer)).toBeFalsy();
-    expect(mayRemediate(FIXTURES.app)).toBeFalsy();
-    expect(mayRemediate(FIXTURES.stranger)).toBeFalsy();
-    expect(
-      mayRemediate(auth({ principalId: "eve:evals", principalType: "service" }))
-    ).toBeFalsy();
-    expect(mayRemediate(null)).toBeFalsy();
-  });
-
-  it("still admits a person on Slack", () => {
-    expect(mayRemediate(auth({}))).toBeTruthy();
-  });
-
-  it("refuses the operator's terminal, which is also where evals run", () => {
-    const localDev = auth({
-      authenticator: "local-dev",
-      principalId: "local-dev",
-      principalType: "local-dev",
-    });
-    expect(classifyPrincipal(localDev)).toBe("maintainer");
-    expect(mayRemediate(localDev)).toBeFalsy();
-  });
-});
-
 describe(isSlackHuman, () => {
   it("admits a person delivered by the Slack channel", () => {
     expect(isSlackHuman(auth({}))).toBeTruthy();
@@ -333,5 +303,38 @@ describe(isSlackHuman, () => {
         auth({ authenticator: "github-webhook", principalId: "github:42" })
       )
     ).toBeFalsy();
+  });
+});
+
+describe(mayChase, () => {
+  const CHASE = {
+    app: true,
+    collaborator: false,
+    maintainer: true,
+    reviewer: false,
+    stranger: false,
+  } as const satisfies Record<TrustClass, boolean>;
+
+  it("admits the app and the maintainer, and no other class", () => {
+    for (const trustClass of TRUST_CLASSES) {
+      expect(mayChase(FIXTURES[trustClass])).toBe(CHASE[trustClass]);
+    }
+    expect(mayChase(null)).toBeFalsy();
+  });
+
+  it("refuses the terminal, which is the maintainer for everything else", () => {
+    const terminal = auth({
+      authenticator: "local-dev",
+      principalId: "local-dev",
+      principalType: "local-dev",
+    });
+    expect(classifyPrincipal(terminal)).toBe("maintainer");
+    expect(isLocalDev(terminal)).toBeTruthy();
+    expect(mayChase(terminal)).toBeFalsy();
+  });
+
+  it("admits a person on Slack only in the pinned workspace", () => {
+    expect(mayChase(auth({}), { slackTeamId: "T0AAAAAAA" })).toBeTruthy();
+    expect(mayChase(auth({}), { slackTeamId: "T0ZZZZZZZ" })).toBeFalsy();
   });
 });

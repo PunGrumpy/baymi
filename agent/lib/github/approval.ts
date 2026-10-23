@@ -5,7 +5,7 @@ import type { ApprovalStatus } from "eve/tools/approval";
 import { checkRerun, parseRerunInput } from "#lib/github/rerun";
 import type { ReadGitHub } from "#lib/github/rerun";
 import type { TrustClass } from "#lib/trust";
-import { classifyPrincipal, isUnattended } from "#lib/trust";
+import { classifyPrincipal, isLocalDev, isUnattended } from "#lib/trust";
 
 /**
  * Who answers for a GitHub write, decided from the session rather than from
@@ -90,22 +90,6 @@ const RERUN_BY_CLASS = {
   reviewer: false,
   stranger: false,
 } as const satisfies Record<TrustClass, boolean>;
-
-/**
- * The operator's own terminal: `localDev()` on the HTTP route, which is also
- * what `eve eval` runs as.
- *
- * @remarks
- * `classifyPrincipal` calls this caller the maintainer, because the operator
- * at a terminal is, for memory and for the lead's instructions. A rerun is
- * the exception: a local eval session that was allowed one would rerun a real
- * workflow on a real pull request. `trust.ts` keeps the same exclusion for
- * `mayRemediate` in a private helper (`isLocalDev`). It is mirrored here
- * because that file is not this unit's to change; when it exports the helper
- * or grows a `mayRerun`, this is the line to delete.
- */
-const isLocalDev = (auth: SessionAuthContext): boolean =>
-  auth.authenticator === "local-dev" && auth.principalType === "local-dev";
 
 /**
  * Whether this caller may ask for a rerun at all, before any run is looked at.

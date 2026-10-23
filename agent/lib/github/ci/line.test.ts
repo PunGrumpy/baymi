@@ -33,6 +33,7 @@ describe(ciLine, () => {
   it("says what each outcome is in its own words", () => {
     const reasons: readonly SpeakReason[] = [
       "cannot-rerun",
+      "chase-failed",
       "external-check",
       "own-code",
       "rerun-not-done",

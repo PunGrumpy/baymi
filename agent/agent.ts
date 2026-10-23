@@ -8,8 +8,7 @@ import { MODEL } from "#lib/model";
  * @remarks
  * Sets the model and the session budget. eve discovers the rest of the
  * agent from the filesystem under `agent/`. The model is a gateway id from
- * `#lib/model`, which the remediation subagent shares, and eve reads its
- * context window from the gateway catalog.
+ * `#lib/model`, and eve reads its context window from the gateway catalog.
  * `defaultTools: false` is what makes the agent read-only, and
  * ARCHITECTURE.md explains which tools come back and why the rest do not.
  */

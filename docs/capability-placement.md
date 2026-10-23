@@ -10,7 +10,7 @@ Use this order when adding a capability. Each step is cheaper than the one below
 4. **A memory slot** (`agent/memory/`) when something has to outlive a session. There is one, and it is the maintainer's; a second scope is a design decision, not a file.
 5. **A channel hook** (`agent/channels/`) when the agent should act on an event nobody typed. `onPullRequest` is the only one, and it is deliberately narrow.
 
-There are no schedules, and one subagent. A schedule produces a report nobody asked for, and the direction is event-driven check-ins that say one thing. A subagent is justified by an observed problem, such as a session losing the thread or spending too many input tokens because a side task shares its context, or by a boundary the root agent must not cross. `agent/subagents/remediation/` is the second kind: fixing a dependency needs a shell and file writes, and a declared subagent gets its own tools and sandbox while inheriting none of the root's (`docs/remediation.md`).
+There are no schedules, and one subagent. A schedule produces a report nobody asked for, and the direction is event-driven check-ins that say one thing. A subagent is justified by an observed problem, such as a session losing the thread or spending too many input tokens because a side task shares its context, or by a boundary the root agent must not cross. `agent/subagents/chase/` is the second kind: fixing a pull request's failing check needs a shell and file writes, and a declared subagent gets its own tools and sandbox while inheriting none of the root's (`docs/chase.md`).
 
 ## The two-layer rule
 
@@ -26,7 +26,7 @@ Authorization is expressed once, in `agent/lib/trust.ts`. A new capability that 
 
 The root agent has no shell, writes no files, and fetches no URLs. That is a design decision recorded in ARCHITECTURE.md, not a gap. A capability that needs any of them (running a scanner, fetching an advisory) is a change to that decision, and it needs its own gate: at minimum, withheld on unattended turns, and never reachable from content a stranger wrote.
 
-The remediation subagent is how that decision was changed once, and it is the pattern for the next one. The shell lives in a declared subagent whose sandbox holds no credential and reaches only the hosts it needs. The subagent is offered only when `mayRemediate` admits the caller. The tools that hold a token run in the app runtime, and they read the repository and the commit from durable state rather than from the model. A dynamic subagent still compiles eve's default tools in, whatever its runtime `defaultTools` says, so each default it must not have is disabled by name under its own `tools/`.
+The chase subagent is how that decision was changed, and it is the pattern for the next one. The shell lives in a declared subagent whose sandbox holds no credential and reaches only the hosts it needs. The subagent is static with `tool: false`, and the only way in is a workflow tool (`chase_pull_request`) whose approval policy and first step decide, with `mayChase`, who may start it, on which pull request and head, and within what budget; its own first tool checks the class again. The tools that hold a token run in the app runtime, and they read the pull request and the head from durable state rather than from the model. The root itself stays read-only: the reviewer never reaches the tool, and nothing the root runs executes code.
 
 ## Instructions
 
