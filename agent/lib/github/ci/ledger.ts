@@ -1,4 +1,6 @@
 import type { RedEvent } from "#lib/github/ci/event";
+import type { CiTurn } from "#lib/github/ci/turn";
+import { parseRerunInput } from "#lib/github/rerun";
 
 /**
  * The idempotency key of a chase, and the record of which keys were used.
@@ -86,43 +88,98 @@ export interface ActionOutcome {
   readonly toolName?: string;
 }
 
+/** One tool call, in the shape `actions.requested` reports it. */
+export interface ToolCall {
+  readonly callId: string;
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- eve types a call's input as a JSON object, and `parseRerunInput` is where it is parsed
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly toolName: string;
+}
+
 export interface RerunRecord {
-  /** Whether this turn's rerun call settled without an error. */
-  readonly accepted: (turnId: string) => boolean;
-  readonly note: (turnId: string, outcome: ActionOutcome) => void;
+  /** Whether the chase with this key saw its own rerun call succeed. */
+  readonly accepted: (key: string) => boolean;
+  /** `actions.requested`: a call the turn made, kept if it reruns the chase's own run. */
+  readonly requested: (
+    sessionId: string,
+    call: ToolCall,
+    turn: Pick<CiTurn, "attempt" | "key"> | null
+  ) => void;
+  /** `action.result`: how a call settled. */
+  readonly settled: (
+    sessionId: string,
+    result: ActionOutcome & { readonly callId: string }
+  ) => void;
 }
 
 /**
- * Which turns saw their rerun call succeed.
+ * Which chases saw their rerun call succeed, keyed by the chase: the run and
+ * the attempt that failed.
  *
  * @remarks
  * A second witness beside GitHub's own attempt count (`./settle.ts` reads
  * both). Whether GitHub reports attempt 2 the moment it accepts a rerun is
  * unmeasured (`docs/notes.md`), and a lag would read as a rerun that never
- * happened. In memory and per runtime like the ledger above: a cold start
- * loses the record, and the attempt count is then the only witness.
+ * happened.
+ *
+ * eve's turn id is `turn_<n>`, unique only within a session, and every
+ * chase's session starts at the same one, so a record keyed by it let one
+ * pull request's rerun silence another's line. The run comes from the call's
+ * own input, read at `actions.requested`, and is joined to its result by the
+ * call id within the session (a model's call ids can repeat across
+ * sessions). A call that reruns a run other than the chase's is not
+ * recorded: it says nothing about this chase. In memory and per runtime like
+ * the ledger above: a cold start loses the record, and the attempt count is
+ * then the only witness.
  */
 export const createRerunRecord = (
-  maxTurns: number = MAX_REMEMBERED_KEYS
+  maxKeys: number = MAX_REMEMBERED_KEYS
 ): RerunRecord => {
+  const pending = new Map<string, string>();
   const accepted = new Set<string>();
+  // Insertion-ordered, so the first key is the oldest.
+  const bound = (keys: Map<string, string> | Set<string>): void => {
+    if (keys.size > maxKeys) {
+      const [oldest] = keys.keys();
+      if (oldest !== undefined) {
+        keys.delete(oldest);
+      }
+    }
+  };
   return {
-    accepted: (turnId) => accepted.has(turnId),
-    note(turnId, outcome) {
-      if (
-        outcome.toolName !== RERUN_TOOL ||
-        outcome.isError === true ||
-        outcome.status !== "completed"
-      ) {
+    accepted: (key) => accepted.has(key),
+    requested(sessionId, call, turn) {
+      if (turn === null || call.toolName !== RERUN_TOOL) {
         return;
       }
-      accepted.add(turnId);
-      if (accepted.size > maxTurns) {
-        const [oldest] = accepted;
-        if (oldest !== undefined) {
-          accepted.delete(oldest);
-        }
+      const run = parseRerunInput(call.input);
+      if (run === null) {
+        return;
       }
+      const key = ciKey(run, {
+        attempt: turn.attempt,
+        eventId: run.runId,
+        kind: "workflow-run",
+      });
+      if (key !== turn.key) {
+        return;
+      }
+      const id = `${sessionId}:${call.callId}`;
+      pending.set(id, key);
+      bound(pending);
+    },
+    settled(sessionId, result) {
+      const id = `${sessionId}:${result.callId}`;
+      const key = pending.get(id);
+      if (key === undefined) {
+        return;
+      }
+      pending.delete(id);
+      if (result.isError === true || result.status !== "completed") {
+        return;
+      }
+      accepted.add(key);
+      bound(accepted);
     },
   };
 };

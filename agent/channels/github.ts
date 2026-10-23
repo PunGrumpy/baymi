@@ -70,7 +70,7 @@ const grounding = createGroundingLedger();
 /** Which red checks this runtime already started a turn for, and already said something about. */
 const chases = createChaseLedger();
 
-/** Which turns saw their rerun call succeed; see `#lib/github/ci/ledger`. */
+/** Which chases saw their rerun call succeed; see `#lib/github/ci/ledger`. */
 const reruns = createRerunRecord();
 
 /** A refused row must never take the review with it; the permission can go away. */
@@ -225,8 +225,7 @@ const tellMaintainer = async (
  */
 const settleChaseTurn = async (
   channel: GitHubEventContext,
-  ctx: SessionContext,
-  turnId: string
+  ctx: SessionContext
 ): Promise<void> => {
   const auth = ctx.session.auth.current;
   const turn = readCiTurn(auth);
@@ -242,7 +241,7 @@ const settleChaseTurn = async (
       request: asRequest(channel.github),
       send: tellMaintainer,
     },
-    { owner, pullRequest, repo, rerunAccepted: reruns.accepted(turnId), turn }
+    { owner, pullRequest, repo, rerunAccepted: reruns.accepted(turn.key), turn }
   );
   logChase(
     `ci settled ${turn.key}: ${outcome.said ? `said ${outcome.reason}, delivered=${outcome.delivered}` : outcome.reason}`
@@ -554,14 +553,23 @@ const pullRequestChannel = githubChannel({
   botName: BOT_NAME,
   credentials: githubCredentials,
   events: {
-    "action.result"(event) {
+    "action.result"(event, _channel, ctx) {
       grounding.note(event.turnId, event.result);
       if (event.result.kind === "tool-result") {
-        reruns.note(event.turnId, {
+        reruns.settled(ctx.session.id, {
+          callId: event.result.callId,
           isError: event.result.isError,
           status: event.status,
           toolName: event.result.toolName,
         });
+      }
+    },
+    "actions.requested"(event, _channel, ctx) {
+      const turn = readCiTurn(ctx.session.auth.current);
+      for (const action of event.actions) {
+        if (action.kind === "tool-call") {
+          reruns.requested(ctx.session.id, action, turn);
+        }
       }
     },
     async "input.requested"(event, channel, ctx) {
@@ -634,7 +642,7 @@ const pullRequestChannel = githubChannel({
     async "turn.completed"(event, channel, ctx) {
       clearFailedTurn(channel.state);
       if (replyRoute(ctx.session.auth.current) === "chase") {
-        await settleChaseTurn(channel, ctx, event.turnId);
+        await settleChaseTurn(channel, ctx);
       }
     },
     async "turn.failed"(event, channel, ctx) {
