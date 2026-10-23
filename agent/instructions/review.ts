@@ -1,6 +1,6 @@
 import { defineDynamic, defineInstructions } from "eve/instructions";
 
-import { isUnattended } from "#lib/trust";
+import { isReviewer } from "#lib/trust";
 
 const CONTENT = `# Reviewing this pull request
 
@@ -39,7 +39,7 @@ One reply, and it is the comment. The channel posts it on the pull request verba
 export default defineDynamic({
   events: {
     "turn.started": (_event, ctx) =>
-      isUnattended(ctx.session.auth.current)
+      isReviewer(ctx.session.auth.current)
         ? defineInstructions({ content: CONTENT })
         : null,
   },

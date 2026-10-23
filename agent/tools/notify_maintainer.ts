@@ -11,7 +11,7 @@ import {
   NOTIFIED_SEVERITIES,
   postSlackMessage,
 } from "#lib/slack/notify";
-import { isUnattended } from "#lib/trust";
+import { isReviewer } from "#lib/trust";
 
 const DESCRIPTION =
   "Send the maintainer a one-line check-in on Slack about a critical or high finding on the pull request you are reviewing. " +
@@ -38,7 +38,7 @@ const resolveNotifyTool: NonNullable<DynamicEvents["turn.started"]> = (
   if (
     target === undefined ||
     channelName(ctx.channel.kind) !== "github" ||
-    !isUnattended(ctx.session.auth.current)
+    !isReviewer(ctx.session.auth.current)
   ) {
     return null;
   }

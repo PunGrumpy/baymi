@@ -9,13 +9,15 @@ import { isUnattended } from "#lib/trust";
  * the tool name alone.
  *
  * @remarks
- * Two questions, in order. Is anyone there? An unattended review has no one
- * to ask: an approval prompt on that turn is posted as a comment on somebody
- * else's pull request and then waits for an answer nobody knows to give, so
- * every write it attempts is refused outright instead. Then, for a turn a
- * trusted person started: what does this write leave behind? A comment on
- * another thread is the substance of an answer and reversible in one click,
- * so it runs uncarded; an issue is durable and asks first.
+ * Two questions, in order. Is anyone there? An unattended turn, which is the
+ * review or the app acting on its own clock, has no one to ask: an approval
+ * prompt on a review is posted as a comment on somebody else's pull request
+ * and waits for an answer nobody knows to give, and a task-mode schedule
+ * cannot park for one at all, so every write it attempts is refused outright
+ * instead. Then, for a turn a trusted person started: what does this write
+ * leave behind? A comment on another thread is the substance of an answer and
+ * reversible in one click, so it runs uncarded; an issue is durable and asks
+ * first.
  *
  * The lists are exhaustive over `GITHUB_WRITES`, and the colocated test holds
  * them that way. A write with no entry here falls back to the extension's

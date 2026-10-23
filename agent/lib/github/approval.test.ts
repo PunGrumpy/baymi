@@ -18,6 +18,14 @@ const reviewer: SessionAuthContext = {
   principalType: "service",
 };
 
+// The principal eve gives a schedule fire, as measured on `eve dev`.
+const app: SessionAuthContext = {
+  attributes: {},
+  authenticator: "app",
+  principalId: "eve:app",
+  principalType: "runtime",
+};
+
 const maintainer: SessionAuthContext = {
   attributes: {},
   authenticator: "github-webhook",
@@ -48,6 +56,13 @@ describe(conversationWrite, () => {
     });
   });
 
+  it("refuses the app on its own clock the same way", () => {
+    expect(conversationWrite(app)).toStrictEqual({
+      reason: UNATTENDED_WRITE_DENIAL,
+      type: "denied",
+    });
+  });
+
   it("runs uncarded for a person", () => {
     expect(conversationWrite(maintainer)).toBe("not-applicable");
   });
@@ -56,6 +71,13 @@ describe(conversationWrite, () => {
 describe(gatedWrite, () => {
   it("refuses an unattended turn", () => {
     expect(gatedWrite(reviewer)).toStrictEqual({
+      reason: UNATTENDED_WRITE_DENIAL,
+      type: "denied",
+    });
+  });
+
+  it("refuses the app on its own clock", () => {
+    expect(gatedWrite(app)).toStrictEqual({
       reason: UNATTENDED_WRITE_DENIAL,
       type: "denied",
     });
