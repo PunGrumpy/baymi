@@ -109,6 +109,7 @@ export const settleChase = async (
     ciSlackMessage({
       attempt: turn.attempt,
       evidence: turn.evidence === "" ? null : turn.evidence,
+      failure: turn.reason,
       job: turn.job,
       pullRequest,
       reason,

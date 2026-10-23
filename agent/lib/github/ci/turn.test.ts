@@ -55,6 +55,14 @@ describe("the facts a turn carries", () => {
     expect(readCiTurn(auth)).toStrictEqual(turn());
   });
 
+  it.each(["base-unread", "breaks-caller"] as const)(
+    "round-trips the reason %s, so the end of the turn can read it",
+    (reason) => {
+      const read = readCiTurn(chaseAuth(webhookAuth, turn({ reason })));
+      expect(read?.reason).toBe(reason);
+    }
+  );
+
   it("round-trips an external check, which has no run", () => {
     const external = turn({
       kind: "external",

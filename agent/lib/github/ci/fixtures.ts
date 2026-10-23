@@ -71,6 +71,9 @@ export const actionsLog = (...lines: string[]): string =>
 export const RUN_PATH = `${BASE}/actions/runs/77`;
 export const JOBS_PATH = `${RUN_PATH}/jobs?filter=latest&per_page=100`;
 export const FILES_PATH = `${BASE}/pulls/7/files?per_page=100`;
+/** The base branch's latest completed run of workflow 9, and that run's jobs. */
+export const BASE_RUNS_PATH = `${BASE}/actions/workflows/9/runs?branch=main&status=completed&exclude_pull_requests=true&per_page=1`;
+export const BASE_JOBS_PATH = `${BASE}/actions/runs/500/jobs?filter=latest&per_page=100`;
 export const PULL_PATH = `${BASE}/pulls/7`;
 export const logPath = (jobId: number): string =>
   `${BASE}/actions/jobs/${jobId}/logs`;

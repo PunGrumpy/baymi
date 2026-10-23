@@ -1,3 +1,4 @@
+import type { FailureReason } from "#lib/github/ci/classify";
 import type { SpeakReason } from "#lib/github/ci/decide";
 import type { PullRequestRef } from "#lib/github/pull-requests";
 import type { SlackMessagePayload } from "#lib/slack/notify";
@@ -28,6 +29,8 @@ const safe = (text: string): string =>
 
 export interface CiLineInput {
   readonly attempt: number;
+  /** Why the classifier said what it did, which words a caller the diff broke differently. */
+  readonly failure?: FailureReason;
   /** The log line or the check's summary; may be missing. */
   readonly evidence: string | null;
   /** The failed job, or the external check's name. */
@@ -43,15 +46,28 @@ const HEADLINE: Readonly<Record<SpeakReason, string>> = {
   "own-code": "CI ล้มจากโค้ดใน PR เอง",
   "rerun-not-done": "CI ล้มแบบ flake แต่ยังไม่ได้รันใหม่",
   "second-failure": "CI ล้มซ้ำหลังรันใหม่แล้ว ไม่ใช่ flake",
-  "stale-base": "CI ล้มในไฟล์ที่ PR ไม่ได้แตะ ต้อง rebase",
+  "stale-base": "CI ล้มนอกไฟล์ที่ PR แตะ และล้มบน base แบบเดียวกัน ไม่ใช่จาก diff",
   unclassified: "CI ล้มแต่จัดประเภทไม่ได้",
 };
+
+/**
+ * A failure in a file the diff never touched, while the base passes: the
+ * checks run on the merge commit, so the diff changed something that file
+ * depends on, and a rebase would change nothing.
+ */
+const BREAKS_CALLER =
+  "CI ล้มจากโค้ดใน PR เอง ไฟล์ที่ล้มอยู่นอก diff แต่ใช้สิ่งที่ diff เปลี่ยน (บน base ผ่าน)";
+
+const headlineOf = (input: CiLineInput): string =>
+  input.reason === "own-code" && input.failure === "breaks-caller"
+    ? BREAKS_CALLER
+    : HEADLINE[input.reason];
 
 /** `https://github.com/o/r/pull/1 CI ล้ม…: job "test": \`line\``. */
 export const ciLine = (input: CiLineInput): string => {
   const evidence = input.evidence === null ? "" : safe(input.evidence);
   const detail = evidence === "" ? "" : `: \`${evidence}\``;
-  return `${input.pullRequest.url} ${HEADLINE[input.reason]} (${safe(input.job)})${detail}`;
+  return `${input.pullRequest.url} ${headlineOf(input)} (${safe(input.job)})${detail}`;
 };
 
 /**

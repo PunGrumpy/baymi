@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { assessCiFailure } from "#lib/github/ci/assess";
 import {
   actionsLog,
+  BASE_JOBS_PATH,
+  BASE_RUNS_PATH,
   FILES_PATH,
   JOBS_PATH,
   OWNER,
@@ -14,6 +16,7 @@ import {
   pullRequestFacts,
   workflowEvent,
 } from "#lib/github/ci/fixtures";
+import type { GitHubAnswers } from "#lib/github/ci/fixtures";
 
 const target = (event = workflowEvent()) => ({
   event,
@@ -29,6 +32,14 @@ const job = (id: number, name: string, conclusion = "failure") => ({
   conclusion,
   id,
   name,
+});
+
+/** A pull request against `main`, whose latest run of workflow 9 the base answers are about. */
+const onBase = () => ({
+  event: workflowEvent(),
+  owner: OWNER,
+  pullRequest: pullRequestFacts({ base: { ref: "main" } }),
+  repo: REPO,
 });
 
 describe(assessCiFailure, () => {
@@ -128,6 +139,70 @@ describe(assessCiFailure, () => {
     });
     const assessment = await assessCiFailure(request, target());
     expect(assessment.classification.kind).toBe("unknown");
+  });
+
+  describe("a failure outside the diff", () => {
+    const outside: GitHubAnswers = {
+      [FILES_PATH]: files,
+      [JOBS_PATH]: { jobs: [job(2, "test")] },
+      [RUN_PATH]: { ...run, workflow_id: 9 },
+      [logPath(2)]: actionsLog(
+        "src/consumer.ts(3,10): error TS2305: Module './api' has no exported member 'fetchUser'."
+      ),
+    };
+
+    it("is a stale base when the same job fails on the base branch's latest run", async () => {
+      const { request } = fakeGitHub({
+        ...outside,
+        [BASE_JOBS_PATH]: { jobs: [job(8, "test")] },
+        [BASE_RUNS_PATH]: {
+          workflow_runs: [{ conclusion: "failure", id: 500 }],
+        },
+      });
+      const assessment = await assessCiFailure(request, onBase());
+      expect(assessment.classification).toMatchObject({
+        kind: "stale-base",
+        reason: "outside-diff",
+      });
+    });
+
+    it("is the diff's own code when the base branch's latest run passed", async () => {
+      const { asked, request } = fakeGitHub({
+        ...outside,
+        [BASE_RUNS_PATH]: {
+          workflow_runs: [{ conclusion: "success", id: 500 }],
+        },
+      });
+      const assessment = await assessCiFailure(request, onBase());
+      expect(assessment.classification).toMatchObject({
+        kind: "own-code",
+        reason: "breaks-caller",
+      });
+      expect(asked).not.toContain(BASE_JOBS_PATH);
+    });
+
+    it("is the diff's own code when the base's run failed in another job", async () => {
+      const { request } = fakeGitHub({
+        ...outside,
+        [BASE_JOBS_PATH]: {
+          jobs: [job(8, "lint"), job(9, "test", "success")],
+        },
+        [BASE_RUNS_PATH]: {
+          workflow_runs: [{ conclusion: "failure", id: 500 }],
+        },
+      });
+      const assessment = await assessCiFailure(request, onBase());
+      expect(assessment.classification.reason).toBe("breaks-caller");
+    });
+
+    it("is not guessed when the base cannot be read", async () => {
+      const { request } = fakeGitHub(outside);
+      const assessment = await assessCiFailure(request, onBase());
+      expect(assessment.classification).toMatchObject({
+        kind: "unknown",
+        reason: "base-unread",
+      });
+    });
   });
 
   it("assesses an external check from its own summary without reading anything", async () => {

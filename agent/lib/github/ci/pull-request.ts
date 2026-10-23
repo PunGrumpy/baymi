@@ -21,6 +21,7 @@ import type { GitHubRequest } from "#lib/github/checks";
  */
 
 const PULL_REQUEST = z.object({
+  base: z.object({ ref: z.string() }).optional(),
   draft: z.boolean().default(false),
   head: z.object({ sha: z.string() }),
   state: z.string(),

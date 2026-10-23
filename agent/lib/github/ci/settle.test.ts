@@ -151,12 +151,21 @@ describe(settleChase, () => {
     });
   });
 
-  it("says a stale base needs a rebase", async () => {
+  it("says a stale base fails on the base too, and not that it needs a rebase", async () => {
     const { deps, sent } = harness({});
-    await expect(settle(deps, { kind: "stale-base" })).resolves.toMatchObject({
-      reason: "stale-base",
-    });
-    expect(sent[0]?.text).toContain("rebase");
+    await expect(
+      settle(deps, { kind: "stale-base", reason: "outside-diff" })
+    ).resolves.toMatchObject({ reason: "stale-base" });
+    expect(sent[0]?.text).toContain("ล้มบน base แบบเดียวกัน");
+    expect(sent[0]?.text).not.toContain("rebase");
+  });
+
+  it("says a caller the diff broke is the diff's own code", async () => {
+    const { deps, sent } = harness({});
+    await expect(
+      settle(deps, { kind: "own-code", reason: "breaks-caller" })
+    ).resolves.toMatchObject({ reason: "own-code" });
+    expect(sent[0]?.text).toContain("ใช้สิ่งที่ diff เปลี่ยน");
   });
 
   it("reports an undelivered line as undelivered", async () => {

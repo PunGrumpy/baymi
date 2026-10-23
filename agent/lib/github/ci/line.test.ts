@@ -42,8 +42,20 @@ describe(ciLine, () => {
     ];
     const lines = reasons.map((reason) => ciLine(input({ reason })));
     expect(new Set(lines).size).toBe(lines.length);
-    expect(ciLine(input({ reason: "stale-base" }))).toContain("rebase");
+    expect(ciLine(input({ reason: "stale-base" }))).toContain(
+      "ล้มบน base แบบเดียวกัน"
+    );
+    expect(ciLine(input({ reason: "stale-base" }))).not.toContain("rebase");
     expect(ciLine(input({ reason: "second-failure" }))).toContain("ไม่ใช่ flake");
+  });
+
+  it("says a caller outside the diff broke on what the diff changed, and does not say rebase", () => {
+    const line = ciLine(
+      input({ failure: "breaks-caller", reason: "own-code" })
+    );
+    expect(line).toContain("ไฟล์ที่ล้มอยู่นอก diff แต่ใช้สิ่งที่ diff เปลี่ยน");
+    expect(line).not.toContain("rebase");
+    expect(ciLine(input({ failure: "in-diff" }))).toBe(ciLine(input()));
   });
 
   it("leaves out the evidence when there is none", () => {

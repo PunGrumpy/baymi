@@ -3,12 +3,21 @@
  *
  * @remarks
  * The table is the `engineering-lead` skill's, applied as code so the answer
- * does not depend on the model's reading of a log. Infrastructure text wins
- * first, because a test that dies on `ECONNRESET` is a flake whichever file
- * it was in. Past that the question is where the failure points: a file the
- * diff changed is the diff's own code, a file it never touched is a base that
- * moved under it, and a log with no file in it is not classified at all
- * rather than guessed.
+ * does not depend on the model's reading of a log. Only the last failing step
+ * is read: a job fails once, at the step that exits non-zero, and an earlier
+ * step's retried network warning or an action's input says nothing about
+ * why. Runner and timeout text there wins first, because the cause is
+ * GitHub's. Past that the question is where the failure points.
+ *
+ * A pull request's checks run on its merge commit, which already holds the
+ * base, so a file the diff never touched failing there is not a base the
+ * pull request needs to catch up with. Either the diff changed something
+ * that file depends on, or the base is red too. So a failure outside the
+ * diff asks the base branch's latest run of the same job (`./assess.ts`):
+ * red there is a stale base, the base's to fix; green there is the diff's own
+ * code; unread is not guessed. The same answer turns a network error in a
+ * test the diff changed into a flake only when the base fails the same way:
+ * a diff can break the service its own test connects to.
  *
  * Everything the log gives is text a stranger may have written, so nothing
  * here executes or follows it. The evidence line is data for a person to read
@@ -24,6 +33,8 @@ export type FailureKind =
 
 /** Why the classifier said what it did. Each is one branch of `classifyFailure`. */
 export type FailureReason =
+  | "base-unread"
+  | "breaks-caller"
   | "external-check"
   | "in-diff"
   | "network"
@@ -33,8 +44,11 @@ export type FailureReason =
   | "runner"
   | "timeout";
 
+/** The base branch's latest run of the same job: failed, passed, or not read. */
+export type BaseVerdict = "green" | "red" | "unknown";
+
 export interface Classification {
-  /** Failing files the log named that the diff changed, or all of them for a stale base. */
+  /** Failing files the log named that the diff changed, or all of them when none is in the diff. */
   readonly files: readonly string[];
   readonly kind: FailureKind;
   /** The one log line to show a person, already cleaned. */
@@ -50,6 +64,17 @@ const ANSI = /\u001B\[[0-9;]*[A-Za-z]/gu;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?/u;
 
 const ANNOTATION_PREFIX = /^##\[(?:error|warning)\]/u;
+
+/** The annotation a failing step, a timeout or a cancel ends with. */
+const ERROR_ANNOTATION = /^##\[error\]/u;
+
+const WARNING_ANNOTATION = /^##\[warning\]/u;
+
+/** Where Actions starts a step: `##[group]Run bun install`. */
+const STEP_START = /^##\[group\]Run /u;
+
+/** A line that says it was retried or only a warning, so the step carried on past it. */
+const SURVIVED = /\bretr(?:y|ying|ies|ied)\b|\bwarn(?:ing)?\b/iu;
 
 const EVIDENCE_MAX = 160;
 
@@ -123,15 +148,62 @@ const RUNNER_WORKSPACE =
 const IGNORED_PATH =
   /(?:^|\/)(?:node_modules|\.bun|\.cache|\.pnpm)\/|^\/(?:usr|opt|root|home|var|tmp)\//u;
 
+/** A log line without its colour and timestamp, annotation still on. */
+const bareLine = (line: string): string =>
+  line.replaceAll(ANSI, "").replace(TIMESTAMP, "").trim();
+
 const cleanLine = (line: string): string =>
-  line
-    .replaceAll(ANSI, "")
-    .replace(TIMESTAMP, "")
-    .replace(ANNOTATION_PREFIX, "")
-    .trim();
+  bareLine(line).replace(ANNOTATION_PREFIX, "").trim();
 
 const cleanLines = (log: string): readonly string[] =>
   log.split("\n").map(cleanLine);
+
+/** The index of the last line before `end` that `test` accepts, or -1. */
+const lastIndex = (
+  lines: readonly string[],
+  test: (line: string) => boolean,
+  end = lines.length
+): number => {
+  for (let index = end - 1; index >= 0; index -= 1) {
+    if (test(lines[index] ?? "")) {
+      return index;
+    }
+  }
+  return -1;
+};
+
+/**
+ * The last failing step of a job's log: from the start of the step the last
+ * error annotation sits in, through that annotation. The whole log when it
+ * has no annotation, and from its first line when the step started above
+ * the tail that was read.
+ */
+export const lastFailingStep = (log: string): string => {
+  const lines = log.split("\n");
+  const bare = lines.map(bareLine);
+  const end = lastIndex(bare, (line) => ERROR_ANNOTATION.test(line));
+  if (end === -1) {
+    return log;
+  }
+  const start = lastIndex(bare, (line) => STEP_START.test(line), end);
+  return lines.slice(Math.max(start, 0), end + 1).join("\n");
+};
+
+/**
+ * The last network error the step printed as an error. One it printed as a
+ * warning, or said it would retry, is one it carried on past.
+ */
+const networkFailure = (step: string): string | null => {
+  const failing = step.split("\n").flatMap((raw) => {
+    const line = cleanLine(raw);
+    const survived =
+      WARNING_ANNOTATION.test(bareLine(raw)) || SURVIVED.test(line);
+    return !survived && NETWORK_PATTERNS.some((pattern) => pattern.test(line))
+      ? [line]
+      : [];
+  });
+  return failing.at(-1) ?? null;
+};
 
 const firstMatch = (
   patterns: readonly RegExp[],
@@ -200,22 +272,31 @@ const sameFile = (failing: string, changed: string): boolean => {
 };
 
 export interface ClassifyInput {
+  /** The base branch's latest run of the same job; `unknown` when it was not read. */
+  readonly base?: BaseVerdict;
   /** Paths the pull request changes. */
   readonly diffFiles: readonly string[];
   /** The tail of the failed job's log, or `null` when it could not be read. */
   readonly log: string | null;
 }
 
+const inDiff = (
+  files: readonly string[],
+  diffFiles: readonly string[]
+): readonly string[] =>
+  files.filter((file) => diffFiles.some((changed) => sameFile(file, changed)));
+
 /** Applies the classification table to one failed job's log. */
 export const classifyFailure = (input: ClassifyInput): Classification => {
   if (input.log === null || input.log.trim() === "") {
     return { files: [], kind: "unknown", line: null, reason: "no-log" };
   }
-  const lines = cleanLines(input.log);
+  const base = input.base ?? "unknown";
+  const step = lastFailingStep(input.log);
+  const lines = cleanLines(step);
   const infrastructure: readonly [FailureReason, readonly RegExp[]][] = [
     ["runner", RUNNER_PATTERNS],
     ["timeout", TIMEOUT_PATTERNS],
-    ["network", NETWORK_PATTERNS],
   ];
   for (const [reason, patterns] of infrastructure) {
     const line = firstMatch(patterns, lines);
@@ -223,17 +304,28 @@ export const classifyFailure = (input: ClassifyInput): Classification => {
       return { files: [], kind: "flake", line: clip(line), reason };
     }
   }
-  const files = failingFiles(input.log);
-  const line = evidenceLine(input.log);
+  const files = failingFiles(step);
+  const changed = inDiff(files, input.diffFiles);
+  const line = evidenceLine(step);
+  const network = networkFailure(step);
+  if (network !== null) {
+    // The diff's own test can fail to connect because the diff broke what it connects to.
+    return changed.length > 0 && base !== "red"
+      ? { files: changed, kind: "own-code", line, reason: "in-diff" }
+      : { files: [], kind: "flake", line: clip(network), reason: "network" };
+  }
   if (files.length === 0) {
     return { files: [], kind: "unknown", line, reason: "no-file" };
   }
-  const inDiff = files.filter((file) =>
-    input.diffFiles.some((changed) => sameFile(file, changed))
-  );
-  return inDiff.length > 0
-    ? { files: inDiff, kind: "own-code", line, reason: "in-diff" }
-    : { files, kind: "stale-base", line, reason: "outside-diff" };
+  if (changed.length > 0) {
+    return { files: changed, kind: "own-code", line, reason: "in-diff" };
+  }
+  if (base === "red") {
+    return { files, kind: "stale-base", line, reason: "outside-diff" };
+  }
+  return base === "green"
+    ? { files, kind: "own-code", line, reason: "breaks-caller" }
+    : { files, kind: "unknown", line, reason: "base-unread" };
 };
 
 /** An external check has no log; its own summary is the evidence. */

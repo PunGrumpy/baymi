@@ -5,6 +5,7 @@ import {
   classifyFailure,
   evidenceLine,
   failingFiles,
+  lastFailingStep,
 } from "#lib/github/ci/classify";
 
 const stamp = "2026-10-22T18:44:39.1234567Z";
@@ -18,8 +19,23 @@ const log = (...lines: string[]): string =>
 const DIFF = ["src/server.ts", "src/utils/format.ts", "README.md"];
 
 describe("a flake or infrastructure failure", () => {
-  it("is a network error, even in a file the diff changed", () => {
+  it("is a network error in a step that touches no file the diff changed", () => {
     const result = classifyFailure({
+      diffFiles: DIFF,
+      log: log(
+        "##[group]Run bun install",
+        "error: GET https://registry.npmjs.org/zod - ECONNRESET"
+      ),
+    });
+    expect(result).toMatchObject({ kind: "flake", reason: "network" });
+    expect(result.line).toBe(
+      "error: GET https://registry.npmjs.org/zod - ECONNRESET"
+    );
+  });
+
+  it("is a network error in the diff's own test when the base fails the same way", () => {
+    const result = classifyFailure({
+      base: "red",
       diffFiles: DIFF,
       log: log(
         "FAIL src/server.test.ts",
@@ -68,13 +84,15 @@ describe("a flake or infrastructure failure", () => {
   });
 });
 
+const BROKEN_PARSER =
+  "src/legacy/parser.ts(18,7): error TS2322: Type 'string' is not assignable to type 'number'.";
+
 describe("a stale base", () => {
-  it("fails in a file the diff never touched", () => {
+  it("fails in a file the diff never touched, and fails the same way on the base", () => {
     const result = classifyFailure({
+      base: "red",
       diffFiles: DIFF,
-      log: log(
-        "src/legacy/parser.ts(18,7): error TS2322: Type 'string' is not assignable to type 'number'."
-      ),
+      log: log(BROKEN_PARSER),
     });
     expect(result).toMatchObject({
       files: ["src/legacy/parser.ts"],
@@ -86,6 +104,7 @@ describe("a stale base", () => {
 
   it("reads a runner's absolute path the way the diff names it", () => {
     const result = classifyFailure({
+      base: "red",
       diffFiles: DIFF,
       log: log(
         "/home/runner/work/baymi/baymi/src/legacy/parser.ts:18:7 error: unexpected token"
@@ -93,6 +112,12 @@ describe("a stale base", () => {
     });
     expect(result.files).toStrictEqual(["src/legacy/parser.ts"]);
     expect(result.kind).toBe("stale-base");
+  });
+
+  it("is not guessed when the base's run could not be read", () => {
+    expect(
+      classifyFailure({ diffFiles: DIFF, log: log(BROKEN_PARSER) })
+    ).toMatchObject({ kind: "unknown", reason: "base-unread" });
   });
 
   it("ignores a path inside node_modules", () => {
@@ -146,6 +171,95 @@ describe("the diff's own code", () => {
     });
     expect(result.kind).toBe("own-code");
     expect(result.files).toStrictEqual(["src/server.ts"]);
+  });
+});
+
+/** The cases the L5 verifier built against the first classifier, each of which it got wrong. */
+describe("the cases the first classifier mislabeled", () => {
+  it("is the diff's own code when an untouched caller breaks on what the diff changed and the base passes", () => {
+    const result = classifyFailure({
+      base: "green",
+      diffFiles: ["src/api.ts"],
+      log: log(
+        "src/consumer.ts(3,10): error TS2305: Module '\"./api\"' has no exported member 'fetchUser'."
+      ),
+    });
+    expect(result).toMatchObject({
+      files: ["src/consumer.ts"],
+      kind: "own-code",
+      reason: "breaks-caller",
+    });
+  });
+
+  it("is the diff's own code when a retried network warning in one step precedes a real type error in the next", () => {
+    const result = classifyFailure({
+      diffFiles: DIFF,
+      log: log(
+        "##[group]Run bun install --frozen-lockfile",
+        "bun install --frozen-lockfile",
+        "##[endgroup]",
+        "warn: ECONNRESET downloading zod, retrying (1/3)",
+        "##[group]Run bun run typecheck",
+        "bun run typecheck",
+        "##[endgroup]",
+        "src/server.ts(3,1): error TS2322: Type 'number' is not assignable to type 'string'."
+      ),
+    });
+    expect(result).toMatchObject({ kind: "own-code", reason: "in-diff" });
+    expect(result.line).toContain("error TS2322");
+  });
+
+  it("is the diff's own code when the retry and the type error are in one step", () => {
+    const result = classifyFailure({
+      diffFiles: DIFF,
+      log: log(
+        "npm WARN network ECONNRESET fetching zod, will retry",
+        "##[warning]getaddrinfo EAI_AGAIN registry.npmjs.org",
+        "src/server.ts(3,1): error TS2322: Type 'number' is not assignable to type 'string'."
+      ),
+    });
+    expect(result).toMatchObject({ kind: "own-code", reason: "in-diff" });
+  });
+
+  it("is the diff's own code when the diff's own test fails on ECONNREFUSED and the base passes", () => {
+    const failure = log(
+      "FAIL src/db.test.ts > connects to the database",
+      "Error: connect ECONNREFUSED 127.0.0.1:5432",
+      " ❯ src/db.ts:10:5",
+      "Test Files  1 failed (1)"
+    );
+    expect(
+      classifyFailure({ base: "green", diffFiles: ["src/db.ts"], log: failure })
+    ).toMatchObject({
+      files: ["src/db.test.ts", "src/db.ts"],
+      kind: "own-code",
+    });
+    expect(
+      classifyFailure({ diffFiles: ["src/db.ts"], log: failure }).kind
+    ).toBe("own-code");
+    expect(
+      classifyFailure({ base: "red", diffFiles: ["src/db.ts"], log: failure })
+    ).toMatchObject({ kind: "flake", reason: "network" });
+  });
+});
+
+describe(lastFailingStep, () => {
+  it("keeps the step that failed and drops the steps before it and the cleanup after it", () => {
+    const step = lastFailingStep(
+      `${log(
+        "##[group]Run bun install",
+        "Error: connect ECONNRESET 1.2.3.4:443 (retried, then fine)",
+        "##[group]Run bun test",
+        "FAIL src/server.test.ts"
+      )}\n2026-10-22T18:44:40Z ##[group]Run actions/cache/save\n2026-10-22T18:44:40Z Post job cleanup.`
+    );
+    expect(step).toContain("FAIL src/server.test.ts");
+    expect(step).not.toContain("ECONNRESET");
+    expect(step).not.toContain("Post job cleanup");
+  });
+
+  it("is the whole log when it has no error annotation", () => {
+    expect(lastFailingStep("a\nb")).toBe("a\nb");
   });
 });
 
@@ -204,13 +318,24 @@ describe("a real typecheck log", () => {
     ]);
   });
 
-  it("is a stale base for a pull request that touches other files", () => {
+  it("is a stale base for a pull request that touches other files, when the base fails it too", () => {
     expect(
       classifyFailure({
+        base: "red",
         diffFiles: ["apps/docs/content/index.mdx"],
         log: REAL_TYPECHECK_LOG,
       }).kind
     ).toBe("stale-base");
+  });
+
+  it("is the diff's own code for a pull request that touches other files, when the base passes", () => {
+    expect(
+      classifyFailure({
+        base: "green",
+        diffFiles: ["apps/docs/content/index.mdx"],
+        log: REAL_TYPECHECK_LOG,
+      })
+    ).toMatchObject({ kind: "own-code", reason: "breaks-caller" });
   });
 
   it("is the diff's own code for a pull request that edits the page", () => {

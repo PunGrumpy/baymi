@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import type { GitHubRequest } from "#lib/github/checks";
 import { classifyExternal, classifyFailure } from "#lib/github/ci/classify";
-import type { Classification, FailureKind } from "#lib/github/ci/classify";
+import type {
+  BaseVerdict,
+  Classification,
+  FailureKind,
+} from "#lib/github/ci/classify";
 import type { RedEvent } from "#lib/github/ci/event";
 import type { PullRequestFacts } from "#lib/github/ci/pull-request";
 
@@ -21,6 +25,11 @@ import type { PullRequestFacts } from "#lib/github/ci/pull-request";
  * token without Actions read, degrades to `unknown`, which is spoken to the
  * maintainer, because silence on a red check nobody could read is the worse
  * outcome.
+ *
+ * Besides the run, its failed jobs' logs and the pull request's files, it
+ * reads the base branch's latest completed run of the same
+ * workflow and that run's jobs, which is what tells a stale base from a
+ * caller the diff broke (`./classify.ts`).
  */
 
 /** The jobs worth reading a log for; a run with more failures has one cause per job anyway. */
@@ -34,6 +43,13 @@ const PAGE = 100;
 const RUN = z.object({
   conclusion: z.string().nullable(),
   run_attempt: z.number().int().positive(),
+  workflow_id: z.number().int().optional(),
+});
+
+const BASE_RUNS = z.object({
+  workflow_runs: z.array(
+    z.object({ conclusion: z.string().nullable(), id: z.number().int() })
+  ),
 });
 
 const JOBS = z.object({
@@ -50,6 +66,12 @@ const FILES = z.array(z.object({ filename: z.string() }));
 
 const FAILED_JOB_CONCLUSIONS: ReadonlySet<string> = new Set([
   "cancelled",
+  "failure",
+  "timed_out",
+]);
+
+/** A base job that ended this way failed; a cancelled one says nothing either way. */
+const BASE_RED_CONCLUSIONS: ReadonlySet<string> = new Set([
   "failure",
   "timed_out",
 ]);
@@ -126,6 +148,59 @@ const readDiffFiles = (
     return files.map((file) => file.filename);
   });
 
+/** What the base says about a job, by the job's name. */
+type BaseOf = (jobName: string) => BaseVerdict;
+
+const UNREAD_BASE: BaseOf = () => "unknown";
+
+/**
+ * The base branch's latest completed run of the same workflow, read as a
+ * verdict per job: `red` when the job of the same name failed there too.
+ */
+const readBase = async (
+  request: GitHubRequest,
+  target: AssessTarget,
+  workflowId: number | undefined
+): Promise<BaseOf> => {
+  const baseRef = target.pullRequest.base?.ref;
+  if (workflowId === undefined || baseRef === undefined) {
+    return UNREAD_BASE;
+  }
+  const where = `/repos/${target.owner}/${target.repo}`;
+  const runs = await soft(() =>
+    getJson(
+      request,
+      `${where}/actions/workflows/${workflowId}/runs?branch=${encodeURIComponent(baseRef)}&status=completed&exclude_pull_requests=true&per_page=1`,
+      BASE_RUNS
+    )
+  );
+  const [latest] = runs?.workflow_runs ?? [];
+  if (latest === undefined) {
+    return UNREAD_BASE;
+  }
+  if (latest.conclusion === "success") {
+    return () => "green";
+  }
+  const jobs = await soft(() =>
+    getJson(
+      request,
+      `${where}/actions/runs/${latest.id}/jobs?filter=latest&per_page=${PAGE}`,
+      JOBS
+    )
+  );
+  if (jobs === null) {
+    return UNREAD_BASE;
+  }
+  return (jobName) => {
+    const conclusion =
+      jobs.jobs.find((job) => job.name === jobName)?.conclusion ?? null;
+    if (conclusion !== null && BASE_RED_CONCLUSIONS.has(conclusion)) {
+      return "red";
+    }
+    return conclusion === "success" ? "green" : "unknown";
+  };
+};
+
 interface JobLog {
   readonly classification: Classification;
   readonly name: string;
@@ -134,9 +209,10 @@ interface JobLog {
 const classifyJobs = async (
   request: GitHubRequest,
   target: AssessTarget,
-  runId: number,
+  run: { readonly id: number; readonly workflowId: number | undefined },
   diffFiles: readonly string[]
 ): Promise<readonly JobLog[]> => {
+  const runId = run.id;
   const jobs = await soft(() =>
     getJson(
       request,
@@ -147,6 +223,10 @@ const classifyJobs = async (
   const failed = (jobs?.jobs ?? [])
     .filter((job) => FAILED_JOB_CONCLUSIONS.has(job.conclusion ?? ""))
     .slice(0, MAX_LOGS_READ);
+  const baseOf =
+    failed.length === 0
+      ? UNREAD_BASE
+      : await readBase(request, target, run.workflowId);
   return Promise.all(
     failed.map(async (job) => {
       const log = await soft(() =>
@@ -157,6 +237,7 @@ const classifyJobs = async (
       );
       return {
         classification: classifyFailure({
+          base: baseOf(job.name),
           diffFiles,
           log: log === null ? null : tail(log),
         }),
@@ -218,7 +299,12 @@ export const assessCiFailure = async (
   const jobs =
     diffFiles === null
       ? []
-      : await classifyJobs(request, target, event.eventId, diffFiles);
+      : await classifyJobs(
+          request,
+          target,
+          { id: event.eventId, workflowId: run?.workflow_id },
+          diffFiles
+        );
   const chosen = worst(jobs);
   return {
     ...base,

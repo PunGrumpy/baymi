@@ -32,6 +32,8 @@ const KINDS = [
 ] as const satisfies readonly FailureKind[];
 
 const REASONS = [
+  "base-unread",
+  "breaks-caller",
   "external-check",
   "in-diff",
   "network",
@@ -144,6 +146,14 @@ export const chaseAuth = (
 
 const QUOTE_MAX = 160;
 
+/** What a reason means that its name does not say, for the two a model could misread. */
+const REASON_NOTES: Partial<Record<FailureReason, string>> = {
+  "breaks-caller":
+    " The failing file is outside the diff and the base branch passes, so the diff changed something that file depends on.",
+  "outside-diff":
+    " The base branch fails the same job, so the diff did not cause it.",
+};
+
 /**
  * What the model is told, as context ahead of the turn.
  *
@@ -171,7 +181,7 @@ export const chaseBrief = (turn: CiTurn): readonly string[] => {
       "# CI chase",
       "A check on this pull request finished red, and the app started this turn on its own. Nobody asked you anything and nobody is reading your reply.",
       `- Check: ${turn.job}${turn.runId === null ? "" : `, workflow run ${turn.runId}`}, attempt ${turn.attempt}, ended ${turn.conclusion}, head ${turn.headSha.slice(0, 7)}.`,
-      `- Classified by code as: ${turn.kind} (${turn.reason}). Evidence: ${evidence}`,
+      `- Classified by code as: ${turn.kind} (${turn.reason}). Evidence: ${evidence}${REASON_NOTES[turn.reason] ?? ""}`,
       `- ${action}`,
       "- The channel reads GitHub after you finish and tells PunGrumpy on Slack, in Thai, only when the pull request is blocked on them. You write nothing to Slack and nothing to the pull request.",
       "- Do not comment on the pull request, reply in its thread, open an issue, or ask a question. Your final message is discarded; keep it to one line saying what you did.",
