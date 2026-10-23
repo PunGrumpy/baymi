@@ -1,6 +1,6 @@
 # Chase
 
-Status: built, and bound to the pull request it is handed since C1b (`agent/subagents/chase/`, `agent/lib/chase/`, `agent/tools/chase_pull_request.ts`). Run live on a scratch pull request at the maintainer's request, with a local Docker sandbox: it reproduced a failing test, fixed it, passed the checks and pushed one commit, and the pull request's CI went from red to green (`docs/notes.md` has the run, its cost and the two bugs it found first). The CI turn's hand-off has unit tests but has not run live. It replaces the remediation subagent, which eve 0.62.0 never offered.
+Status: built, and bound to the pull request it is handed since C1b (`agent/subagents/chase/`, `agent/lib/chase/`, `agent/tools/chase_pull_request.ts`). Run live on a scratch pull request at the maintainer's request, with a local Docker sandbox: it reproduced a failing test, fixed it, passed the checks and pushed one commit, and the pull request's CI went from red to green (`docs/notes.md` has the run, its cost and the two bugs it found first). The C1b bounds ran live on a second scratch pull request (below the fix loop's description, in `docs/notes.md`). The CI turn's hand-off has unit tests but has not run live. It replaces the remediation subagent, which eve 0.62.0 never offered.
 
 ## What it does
 
@@ -45,7 +45,7 @@ A fix is verified (`fixVerdict` in `agent/lib/chase/checks.ts`) only when:
 - no run's install or checks changed a file, which three git tree ids decide: **A**, the baseline commit's tree after the clean checkout; **B**, the tree just before a run (A plus the model's own edits); **C**, the tree after the install and the checks. If C differs from B on any tracked or non-ignored path, `run_checks` ends the chase at once with a result that names the paths ("rewrote 2 files (bun.lock, src/format.ts)") rather than asking the model to choose. What is pushed is the index minus A, so only the model's own edits can go;
 - the baseline commit has not moved (code in the sandbox ran `git commit` or `git reset`), and the tree has not moved since the last run, which the tree id taken again at push decides.
 
-`push_fix` refuses anything else; there is no unverified push. A project whose checks write tracked files, or files its `.gitignore` does not cover (a formatter with `--write`, a snapshot update, a build into an unignored folder), therefore stops the chase on its first run. That is a cost of the rule, and it is fail-closed on purpose.
+`push_fix` refuses anything else; there is no unverified push. A project whose checks write tracked files, or files its `.gitignore` does not cover (a formatter with `--write`, a snapshot update, a build into an unignored folder), therefore stops the chase on its first run. That is a cost of the rule, and it is fail-closed on purpose. It also ends a chase whose model edits a file in the same step as `run_checks` (eve runs a step's tool calls in parallel, so the edit lands while the checks run); the instructions tell the model to call `run_checks` alone.
 
 ## Where the fix goes
 

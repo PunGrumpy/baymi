@@ -45,7 +45,7 @@ import { releaseSandbox } from "#lib/sandbox";
 export default defineTool({
   description:
     "Install dependencies with lifecycle scripts off and run the project's typecheck, check, lint and test scripts. " +
-    "Call it once before any edit to reproduce the failure, and again after each fix. It reports each check's exit code and the end of its output.",
+    "Call it once before any edit to reproduce the failure, and again after each fix, always in a step of its own and never alongside an edit. It reports each check's exit code and the end of its output.",
   async execute(_input, ctx) {
     const state = chaseState.get();
     if (state.task === null || state.startedAt === null) {
