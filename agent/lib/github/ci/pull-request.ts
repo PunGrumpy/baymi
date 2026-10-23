@@ -40,7 +40,7 @@ export type PullRequestSkip =
 
 /** `null` when the pull request is one to chase. */
 export const skipPullRequest = (
-  pullRequest: PullRequestFacts,
+  pullRequest: Pick<PullRequestFacts, "draft" | "head" | "state" | "user">,
   event: { readonly headSha: string },
   repositoryOwner: string
 ): PullRequestSkip | null => {
