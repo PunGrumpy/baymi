@@ -1,6 +1,9 @@
+import { z } from "zod";
+
 import type { GitHubRequest } from "#lib/github/checks";
 import type { RedEvent } from "#lib/github/ci/event";
 import type { PullRequestFacts } from "#lib/github/ci/pull-request";
+import type { FetchLike } from "#lib/slack/notify";
 
 /** Shared by the chase's tests: a GitHub that answers from a table, and the facts it describes. */
 export const HEAD = "3c41196471a0ba382508ce887681b1403f1a47cd";
@@ -71,3 +74,40 @@ export const FILES_PATH = `${BASE}/pulls/7/files?per_page=100`;
 export const PULL_PATH = `${BASE}/pulls/7`;
 export const logPath = (jobId: number): string =>
   `${BASE}/actions/jobs/${jobId}/logs`;
+
+/** The fields of a post the fake keeps, as `chat.postMessage` receives them. */
+const POST = z.looseObject({
+  metadata: z.object({
+    event_payload: z.object({ key: z.string() }),
+    event_type: z.string(),
+  }),
+  text: z.string(),
+});
+
+/**
+ * A Slack channel that keeps what was posted and answers history from it,
+ * shared by every "instance" a test starts, the way the real channel is.
+ */
+export const fakeSlackChannel = (
+  history: "readable" | "unreadable" = "readable"
+) => {
+  const posted: z.infer<typeof POST>[] = [];
+  const fetchImpl: FetchLike = (input, init) => {
+    const method = input.split("/").at(-1) ?? "";
+    if (method === "chat.postMessage") {
+      posted.push(POST.parse(JSON.parse(init.body)));
+      return Promise.resolve({
+        json: () => Promise.resolve({ ok: true, ts: `${posted.length}.0` }),
+      });
+    }
+    const answer =
+      history === "unreadable"
+        ? { error: "not_in_channel", ok: false }
+        : {
+            messages: posted.map(({ metadata }) => ({ metadata })),
+            ok: true,
+          };
+    return Promise.resolve({ json: () => Promise.resolve(answer) });
+  };
+  return { fetchImpl, posted };
+};

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { sendLineOnce } from "#lib/github/ci/deliver";
 import {
   fakeGitHub,
+  fakeSlackChannel,
   HEAD,
   OWNER,
   REPO,
@@ -12,7 +14,7 @@ import { createChaseLedger } from "#lib/github/ci/ledger";
 import { rerunTriggered, settleChase } from "#lib/github/ci/settle";
 import type { SettleDeps } from "#lib/github/ci/settle";
 import type { CiTurn } from "#lib/github/ci/turn";
-import type { SlackMessagePayload } from "#lib/slack/notify";
+import type { FetchLike, SlackMessagePayload } from "#lib/slack/notify";
 
 const pullRequest = {
   number: 7,
@@ -41,7 +43,11 @@ const harness = (answers: GitHubAnswers, delivered = true) => {
     request: github.request,
     send: (message) => {
       sent.push(message);
-      return Promise.resolve(delivered);
+      return Promise.resolve(
+        delivered
+          ? { status: "delivered" }
+          : { error: "channel_not_found", status: "unsent" }
+      );
     },
   };
   return { deps, sent };
@@ -168,5 +174,41 @@ describe(settleChase, () => {
     await settle(deps, change);
     await settle(deps, change);
     expect(sent).toHaveLength(1);
+  });
+});
+
+/** One instance: its own ledger, the same GitHub and the same Slack channel as every other. */
+const instance = (fetchImpl: FetchLike): SettleDeps => ({
+  ledger: createChaseLedger(),
+  request: fakeGitHub({ [RUN_PATH]: { run_attempt: 1 } }).request,
+  send: (message, key) =>
+    sendLineOnce({
+      fetchImpl,
+      key,
+      now: new Date("2026-10-23T02:00:00Z"),
+      target: "C0123456789",
+      text: message.text,
+      token: "xoxb-test",
+    }),
+});
+
+describe("a line said across instances", () => {
+  it("says nothing the second time when a cold instance settles a redelivered chase", async () => {
+    const slack = fakeSlackChannel();
+    await expect(
+      settle(instance(slack.fetchImpl), { kind: "own-code" })
+    ).resolves.toMatchObject({ delivered: true, said: true });
+    await expect(
+      settle(instance(slack.fetchImpl), { kind: "own-code" })
+    ).resolves.toStrictEqual({ reason: "duplicate", said: false });
+    expect(slack.posted).toHaveLength(1);
+  });
+
+  it("posts nothing when Slack's history cannot be read", async () => {
+    const slack = fakeSlackChannel("unreadable");
+    await expect(
+      settle(instance(slack.fetchImpl), { kind: "own-code" })
+    ).resolves.toMatchObject({ delivered: false, said: true });
+    expect(slack.posted).toStrictEqual([]);
   });
 });

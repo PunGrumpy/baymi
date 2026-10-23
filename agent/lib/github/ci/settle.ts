@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { GitHubRequest } from "#lib/github/checks";
 import { decideRerun, decideSpeak } from "#lib/github/ci/decide";
 import type { SpeakReason } from "#lib/github/ci/decide";
+import type { LineDelivery } from "#lib/github/ci/deliver";
 import type { ChaseLedger } from "#lib/github/ci/ledger";
 import { ciSlackMessage } from "#lib/github/ci/line";
 import type { CiTurn } from "#lib/github/ci/turn";
@@ -59,8 +60,14 @@ export type SettleOutcome =
 export interface SettleDeps {
   readonly ledger: ChaseLedger;
   readonly request: GitHubRequest;
-  /** Posts the message to the maintainer and answers whether it arrived. */
-  readonly send: (message: SlackMessagePayload) => Promise<boolean>;
+  /**
+   * Posts the message to the maintainer under the chase's key, unless Slack
+   * already holds a message with that key (`./deliver.ts`), and says which.
+   */
+  readonly send: (
+    message: SlackMessagePayload,
+    key: string
+  ) => Promise<LineDelivery>;
 }
 
 /** Decides and, when someone needs to hear, sends the one line. */
@@ -94,17 +101,22 @@ export const settleChase = async (
   if (reason === null) {
     return { reason: "quiet", said: false };
   }
+  // The ledger catches a repeat on this instance; Slack's own history, one on any other.
   if (!deps.ledger.claimReport(turn.key)) {
     return { reason: "duplicate", said: false };
   }
-  const delivered = await deps.send(
+  const delivery = await deps.send(
     ciSlackMessage({
       attempt: turn.attempt,
       evidence: turn.evidence === "" ? null : turn.evidence,
       job: turn.job,
       pullRequest,
       reason,
-    })
+    }),
+    turn.key
   );
-  return { delivered, reason, said: true };
+  if (delivery.status === "duplicate") {
+    return { reason: "duplicate", said: false };
+  }
+  return { delivered: delivery.status === "delivered", reason, said: true };
 };

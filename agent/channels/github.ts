@@ -24,6 +24,8 @@ import {
   reviewOutcome,
   settleCheckRun,
 } from "#lib/github/checks";
+import { sendLineOnce } from "#lib/github/ci/deliver";
+import type { LineDelivery } from "#lib/github/ci/deliver";
 import { startChase } from "#lib/github/ci/dispatch";
 import type { ChaseDeps } from "#lib/github/ci/dispatch";
 import { createChaseLedger, createRerunRecord } from "#lib/github/ci/ledger";
@@ -183,34 +185,39 @@ const reportFailedReview = async (
 };
 
 /**
- * Sends the maintainer one Slack message from a turn nobody is watching, and
- * answers whether it arrived. The line is logged first, so a deployment with
- * no target configured still leaves a trace of what it would have said.
+ * Sends the maintainer one Slack line from a turn nobody is watching, once
+ * across every instance (`#lib/github/ci/deliver`), and says what became of
+ * it. The line is logged first, so a deployment with no target configured
+ * still leaves a trace of what it would have said.
  */
 const tellMaintainer = async (
-  message: SlackMessagePayload
-): Promise<boolean> => {
+  message: SlackMessagePayload,
+  key: string
+): Promise<LineDelivery> => {
   logChase(`ci line: ${message.text}`);
-  if (env.SLACK_NOTIFY_CHANNEL === undefined) {
+  const target = env.SLACK_NOTIFY_CHANNEL;
+  if (target === undefined) {
     logChase("ci line not sent: SLACK_NOTIFY_CHANNEL is not set");
-    return false;
+    return { error: "SLACK_NOTIFY_CHANNEL is not set", status: "unsent" };
   }
   try {
     const token = await getToken(env.SLACK_CONNECTOR, {
       subject: { type: "app" },
     });
-    const delivery = await postSlackMessage({
-      message,
-      target: env.SLACK_NOTIFY_CHANNEL,
+    const delivery = await sendLineOnce({
+      key,
+      now: new Date(),
+      target,
+      text: message.text,
       token,
     });
-    if (!delivery.ok) {
+    if (delivery.status === "unsent") {
       logFailure("notice", { message: delivery.error });
     }
-    return delivery.ok;
+    return delivery;
   } catch (error) {
     logFailure("notice", { message: String(error) });
-    return false;
+    return { error: String(error), status: "unsent" };
   }
 };
 
@@ -263,23 +270,28 @@ const reportFailedChaseTurn = async (
     logChase("ci turn failed with no chase facts; nothing sent");
     return;
   }
-  if (!chases.claimReport(`failed:${turn.key}`)) {
+  const key = `failed:${turn.key}`;
+  if (!chases.claimReport(key)) {
     return;
   }
-  await tellMaintainer(chaseFailedMessage({ code: event.code, pullRequest }));
+  await tellMaintainer(
+    chaseFailedMessage({ code: event.code, pullRequest }),
+    key
+  );
 };
 
 /** A chase session that died with no turn failure behind it: nothing else would say so. */
 const reportFailedChase = async (
   channel: GitHubEventContext,
-  event: { readonly code?: string }
+  event: { readonly code?: string; readonly sessionId: string }
 ): Promise<void> => {
   const { owner, pullRequestNumber, repo } = channel.state;
   if (pullRequestNumber === null) {
     return;
   }
   const repository = `${owner}/${repo}`;
-  const key = `failed:${repository}#${pullRequestNumber}:${event.code ?? ""}`;
+  // The session is the chase's own, so its id names the chase.
+  const key = `failed:${event.sessionId}`;
   if (!chases.claimReport(key)) {
     return;
   }
@@ -291,7 +303,8 @@ const reportFailedChase = async (
         repository,
         url: pullRequestUrl(repository, pullRequestNumber),
       },
-    })
+    }),
+    key
   );
 };
 
