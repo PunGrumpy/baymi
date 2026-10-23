@@ -102,6 +102,13 @@ const APP_LOGIN = `${BOT_NAME}[bot]`;
 /**
  * Whether the head commit is one the chase pushed: a fix that went red again.
  * The chase does not chase its own fix; the maintainer hears instead.
+ *
+ * @remarks
+ * `null` means GitHub cannot say, and the caller treats it as maybe ours.
+ * That covers an unreadable commit and one whose `author` is `null`, which
+ * GitHub answers for a commit whose email is linked to no account. Reading
+ * that as "not ours" would let the one lasting guard against a fix loop
+ * (the budget counters forget on a cold start) fail open.
  */
 const isOwnFix = async (
   send: GitHubSend,
@@ -111,11 +118,12 @@ const isOwnFix = async (
   const response = await send(`/repos/${repository}/commits/${sha}`, {
     method: "GET",
   });
-  if (response.status !== 200) {
+  const commit = COMMIT.safeParse(response.body);
+  const login = commit.data?.author?.login;
+  if (response.status !== 200 || login === undefined) {
     return null;
   }
-  const login = COMMIT.safeParse(response.body).data?.author?.login;
-  return login?.toLowerCase() === APP_LOGIN;
+  return login.toLowerCase() === APP_LOGIN;
 };
 
 interface AppTarget {
@@ -251,7 +259,7 @@ export const admitChase = async (
     if (own !== false) {
       return refuse(
         own === null
-          ? "GitHub would not say who made the head commit, so no chase ran."
+          ? "GitHub would not say who made the head commit, so it may be the chase's own fix and no chase ran."
           : "The head is the chase's own fix and it failed again; it is not chased twice.",
         headSha
       );

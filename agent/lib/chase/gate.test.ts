@@ -285,6 +285,29 @@ describe(admitChase, () => {
     expect(!unknown.ok && unknown.result.status).toBe("refused");
   });
 
+  it("treats a head whose author GitHub cannot name as maybe the chase's own", async () => {
+    const send = github(pull(), null);
+    const admission = await admitChase(PRINCIPALS.app, REQUEST, deps({ send }));
+    expect(admission.ok).toBeFalsy();
+    expect(!admission.ok && admission.result.status).toBe("refused");
+    expect(!admission.ok && admission.result.reason).toMatch(
+      /may be the chase's own fix/u
+    );
+    const missing = vi.fn<GitHubSend>((path) =>
+      Promise.resolve(
+        path.includes("/commits/")
+          ? { body: {}, status: 200 }
+          : { body: pull(), status: 200 }
+      )
+    );
+    const noField = await admitChase(
+      PRINCIPALS.app,
+      REQUEST,
+      deps({ send: missing })
+    );
+    expect(!noField.ok && noField.result.status).toBe("refused");
+  });
+
   it("claims the budget last and refuses once the head or the day is spent", async () => {
     const store = createMemoryBudgetStore();
     const first = await admitChase(
