@@ -104,12 +104,16 @@ export const startChase = async (
     );
     return null;
   }
-  // A cancelled run is a timeout only when its log says so; otherwise a newer push superseded it.
+  // A cancelled run is a timeout only when its log says so. Anything else was
+  // stopped on purpose, by a person or a newer push, whatever else the log
+  // printed: a network warning there does not make the cancel a flake.
   if (
     event.conclusion === "cancelled" &&
-    assessment.classification.kind !== "flake"
+    assessment.classification.reason !== "timeout"
   ) {
-    deps.log(`ci skip ${where}#${event.pullRequest}: cancelled, not a timeout`);
+    deps.log(
+      `ci skip ${where}#${event.pullRequest}: cancelled by a person or a newer push, not a timeout`
+    );
     return null;
   }
   const turn = ciTurn(assessment, key);

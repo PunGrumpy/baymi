@@ -201,7 +201,29 @@ describe("what starts nothing", () => {
       }
     );
     expect(result).toBeNull();
-    expect(logs.at(-1)).toContain("cancelled, not a timeout");
+    expect(logs.at(-1)).toContain("cancelled by a person or a newer push");
+  });
+
+  it("skips a run a person cancelled even when its log carries a network error, rather than calling it a flake", async () => {
+    for (const networkLine of [
+      "##[warning]Error: connect ECONNRESET 140.82.112.3:443, retrying (1/3)",
+      "Error: connect ECONNRESET 140.82.112.3:443",
+    ]) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- one log at a time
+      const { logs, result } = await chase(
+        workflow({ conclusion: "cancelled" }),
+        {
+          ...failingRepository(),
+          [logPath(2)]: actionsLog(
+            "##[group]Run bun test",
+            networkLine,
+            "##[error]The operation was canceled."
+          ),
+        }
+      );
+      expect(result).toBeNull();
+      expect(logs.at(-1)).toContain("cancelled by a person");
+    }
   });
 
   it("skips an event whose run has since passed", async () => {
