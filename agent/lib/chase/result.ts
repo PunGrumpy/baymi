@@ -16,6 +16,7 @@ export const CHASE_STATUSES = [
   "pushed",
   "opened-pull-request",
   "failed",
+  "no-write-access",
   "not-reproduced",
   "partial",
   "refused",
@@ -117,7 +118,7 @@ export const refusedResult = (input: {
   readonly headSha: string;
   readonly pullRequest: string;
   readonly reason: string;
-  readonly status?: "refused" | "superseded";
+  readonly status?: "no-write-access" | "refused" | "superseded";
 }): ChaseResult => ({
   branch: null,
   checks: [],

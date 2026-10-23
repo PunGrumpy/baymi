@@ -6,6 +6,7 @@ import { APP_SCOPE, bindingProblem } from "#lib/chase/bind";
 import { planPush, REFUSAL_REASONS } from "#lib/chase/branch";
 import { BUDGET_REFUSALS, claimChase, headKey } from "#lib/chase/budget";
 import type { BudgetStore } from "#lib/chase/budget";
+import { probeWriteAccess } from "#lib/chase/commit";
 import type { GitHubSend } from "#lib/chase/commit";
 import { refusedResult } from "#lib/chase/result";
 import type { ChaseResult } from "#lib/chase/result";
@@ -26,7 +27,9 @@ import type { TrustContext } from "#lib/trust";
  * task it returns. Each refusal is a result like any other, so the caller
  * renders "nothing ran, and why" the same way it renders a chase that ran.
  * The order is cheapest first, and the budget is claimed last, so a request
- * refused for any other reason costs no slot.
+ * refused for any other reason costs no slot. Write access is probed just
+ * before the claim: a read-only App would otherwise find out at the first
+ * blob it pushes, after the whole fix loop.
  */
 
 /** What the caller names: one pull request and what failed on it. */
@@ -152,6 +155,9 @@ interface Unfit {
   readonly status: "refused" | "superseded";
 }
 
+/** GitHub's answers to a write the token may not make: no auth, no permission, or hidden from it. */
+const NO_WRITE = new Set([401, 403, 404]);
+
 /**
  * Why this pull request is not one to chase now, or `null` when it is: it is
  * closed, the app's head moved or the pull request is not one the app chases
@@ -210,7 +216,7 @@ export const admitChase = async (
   const refuse = (
     reason: string,
     headSha = "",
-    status: "refused" | "superseded" = "refused"
+    status: "no-write-access" | "refused" | "superseded" = "refused"
   ): Admission => ({
     ok: false,
     result: refusedResult({ headSha, pullRequest: url, reason, status }),
@@ -264,6 +270,19 @@ export const admitChase = async (
         headSha
       );
     }
+  }
+  const writable = await probeWriteAccess(deps.send, request.repository);
+  if (!writable.ok) {
+    return NO_WRITE.has(writable.status)
+      ? refuse(
+          `The App cannot write to ${request.repository} (GitHub answered ${writable.status} to a test write), so no chase ran. It needs Contents write there.`,
+          headSha,
+          "no-write-access"
+        )
+      : refuse(
+          `GitHub answered ${writable.status} to a test write on ${request.repository}, so write access is unconfirmed and no chase ran.`,
+          headSha
+        );
   }
   const budget = await claimChase(deps.store, {
     head: headKey(request.repository, headSha),

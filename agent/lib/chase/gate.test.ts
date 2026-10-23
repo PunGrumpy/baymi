@@ -87,10 +87,14 @@ const pull = (overrides: Partial<PullBody> = {}): PullBody => ({
 
 const github = (
   pullBody: PullBody = pull(),
-  headAuthor: string | null = "PunGrumpy"
+  headAuthor: string | null = "PunGrumpy",
+  blobStatus = 201
 ) =>
-  vi.fn<GitHubSend>((path) =>
-    Promise.resolve(
+  vi.fn<GitHubSend>((path, init) => {
+    if (init.method === "POST" && path.endsWith("/git/blobs")) {
+      return Promise.resolve({ body: { sha: "probe" }, status: blobStatus });
+    }
+    return Promise.resolve(
       path.includes("/commits/")
         ? {
             body: {
@@ -99,8 +103,8 @@ const github = (
             status: 200,
           }
         : { body: pullBody, status: 200 }
-    )
-  );
+    );
+  });
 
 const deps = (overrides: Partial<GateDeps> = {}): GateDeps => ({
   hasModelKey: true,
@@ -306,6 +310,42 @@ describe(admitChase, () => {
       deps({ send: missing })
     );
     expect(!noField.ok && noField.result.status).toBe("refused");
+  });
+
+  it("probes write access before the claim and ends early without it", async () => {
+    for (const status of [401, 403, 404]) {
+      const store = createMemoryBudgetStore();
+      const send = github(pull(), "PunGrumpy", status);
+      // oxlint-disable-next-line eslint/no-await-in-loop -- one status at a time
+      const admission = await admitChase(
+        PRINCIPALS.maintainer,
+        REQUEST,
+        deps({ send, store })
+      );
+      expect(admission.ok).toBeFalsy();
+      expect(!admission.ok && admission.result.status).toBe("no-write-access");
+      expect(!admission.ok && admission.result.reason).toMatch(
+        /cannot write to PunGrumpy\/baymi.*Contents write/u
+      );
+      // The probe ran before the budget, so the refused request cost no slot.
+      // oxlint-disable-next-line eslint/no-await-in-loop -- the same store, next
+      const retry = await admitChase(
+        PRINCIPALS.maintainer,
+        REQUEST,
+        deps({ store })
+      );
+      expect(retry.ok).toBeTruthy();
+    }
+  });
+
+  it("does not take a probe it cannot read as a yes", async () => {
+    const admission = await admitChase(
+      PRINCIPALS.maintainer,
+      REQUEST,
+      deps({ send: github(pull(), "PunGrumpy", 502) })
+    );
+    expect(!admission.ok && admission.result.status).toBe("refused");
+    expect(!admission.ok && admission.result.reason).toMatch(/unconfirmed/u);
   });
 
   it("claims the budget last and refuses once the head or the day is spent", async () => {

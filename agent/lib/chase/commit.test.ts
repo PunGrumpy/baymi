@@ -4,6 +4,7 @@ import {
   createCommits,
   fastForward,
   openFixPullRequest,
+  probeWriteAccess,
 } from "#lib/chase/commit";
 import type { GitHubSend } from "#lib/chase/commit";
 
@@ -124,6 +125,36 @@ describe(fastForward, () => {
         sha: "commit-5",
       })
     ).resolves.toStrictEqual({ ok: false, status: 422 });
+  });
+});
+
+describe(probeWriteAccess, () => {
+  it("creates one fixed blob and reads 201 as write access", async () => {
+    const send = github();
+    await expect(probeWriteAccess(send, "acme/widgets")).resolves.toStrictEqual(
+      {
+        ok: true,
+      }
+    );
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+      "/repos/acme/widgets/git/blobs",
+      {
+        body: { content: "baymi write probe\n", encoding: "utf-8" },
+        method: "POST",
+      }
+    );
+  });
+
+  it("reports what a read-only token is answered", async () => {
+    const send = vi.fn<GitHubSend>(() =>
+      reply(403, { message: "Resource not accessible by integration" })
+    );
+    await expect(probeWriteAccess(send, "acme/widgets")).resolves.toStrictEqual(
+      {
+        ok: false,
+        status: 403,
+      }
+    );
   });
 });
 

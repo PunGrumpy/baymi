@@ -45,6 +45,39 @@ export const githubSend =
     return { body: text ? JSON.parse(text) : null, status: response.status };
   };
 
+export type WriteProbe =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly status: number };
+
+/** What the write probe stores: a few bytes, the same object every time. */
+const PROBE_CONTENT = "baymi write probe\n";
+
+/**
+ * Whether the token can write to the repository, learned before any model
+ * call or sandbox minute is spent.
+ *
+ * @remarks
+ * The repository's `permissions` field reads all false for an installation
+ * token (`docs/notes.md`), so it cannot say. A read-only token fails the
+ * first blob it creates, which for a chase is after the whole fix loop. This
+ * creates one blob of a fixed few bytes: Contents write answers 201, a
+ * read-only token 403 or 404. Nothing points at the blob and GitHub drops
+ * unreferenced objects; the same bytes are the same object, so repeating the
+ * probe adds nothing.
+ */
+export const probeWriteAccess = async (
+  send: GitHubSend,
+  repository: string
+): Promise<WriteProbe> => {
+  const response = await send(`/repos/${repository}/git/blobs`, {
+    body: { content: PROBE_CONTENT, encoding: "utf-8" },
+    method: "POST",
+  });
+  return response.status === 201
+    ? { ok: true }
+    : { ok: false, status: response.status };
+};
+
 /** One file in a commit: its bytes and mode, or a deletion. */
 export interface CommitFile {
   /** Base64 of the file's bytes, or null to delete the path. */
