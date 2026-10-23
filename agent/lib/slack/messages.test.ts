@@ -4,7 +4,7 @@ import { z } from "zod";
 import { hasKeyedMessage, postKeyedText } from "#lib/slack/messages";
 import type { FetchLike } from "#lib/slack/notify";
 
-const KEY = { eventType: "baymi_digest", key: "2026-10-23:abc" };
+const KEY = { eventType: "baymi_digest", key: "2026-10-23" };
 
 /** The request fields these tests look at, whichever method sent them. */
 const REQUEST = z.looseObject({
@@ -72,7 +72,7 @@ describe(postKeyedText, () => {
     expect(calls[0]?.body).toStrictEqual({
       channel: "C0123456789",
       metadata: {
-        event_payload: { key: "2026-10-23:abc" },
+        event_payload: { key: "2026-10-23" },
         event_type: "baymi_digest",
       },
       text: "hello",
@@ -137,7 +137,7 @@ describe(hasKeyedMessage, () => {
   it("finds the key in the metadata of a message from today", async () => {
     const { calls, result } = ask({
       "conversations.history": [
-        { messages: [message(), message("2026-10-23:abc")], ok: true },
+        { messages: [message(), message("2026-10-23")], ok: true },
       ],
     });
     await expect(result).resolves.toBeTruthy();
@@ -151,7 +151,7 @@ describe(hasKeyedMessage, () => {
   it("is false when no message carries the key", async () => {
     const { result } = ask({
       "conversations.history": [
-        { messages: [message("2026-10-22:zzz"), message()], ok: true },
+        { messages: [message("2026-10-22"), message()], ok: true },
       ],
     });
     await expect(result).resolves.toBeFalsy();
@@ -161,7 +161,7 @@ describe(hasKeyedMessage, () => {
     const { result } = ask({
       "conversations.history": [
         {
-          messages: [message("2026-10-23:abc", "something_else")],
+          messages: [message("2026-10-23", "something_else")],
           ok: true,
         },
       ],
@@ -177,7 +177,7 @@ describe(hasKeyedMessage, () => {
           ok: true,
           response_metadata: { next_cursor: "page2" },
         },
-        { messages: [message("2026-10-23:abc")], ok: true },
+        { messages: [message("2026-10-23")], ok: true },
       ],
     });
     await expect(result).resolves.toBeTruthy();
@@ -209,7 +209,7 @@ describe(hasKeyedMessage, () => {
       const { result } = ask({
         "conversations.history": [
           ...endless(4),
-          { messages: [message("2026-10-23:abc")], ok: true },
+          { messages: [message("2026-10-23")], ok: true },
         ],
       });
       await expect(result).resolves.toBeTruthy();
