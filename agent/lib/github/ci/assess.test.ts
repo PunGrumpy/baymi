@@ -6,6 +6,7 @@ import {
   BASE_JOBS_PATH,
   BASE_RUNS_PATH,
   FILES_PATH,
+  filesPath,
   JOBS_PATH,
   OWNER,
   REPO,
@@ -139,6 +140,24 @@ describe(assessCiFailure, () => {
     });
     const assessment = await assessCiFailure(request, target());
     expect(assessment.classification.kind).toBe("unknown");
+  });
+
+  it("reads every changed file, not only the first hundred", async () => {
+    const others = Array.from({ length: 100 }, (_, index) => ({
+      filename: `docs/page-${index}.md`,
+    }));
+    const { request } = fakeGitHub({
+      [filesPath(1)]: others,
+      [filesPath(2)]: [{ filename: "src/server.ts" }],
+      [JOBS_PATH]: { jobs: [job(2, "test")] },
+      [RUN_PATH]: run,
+      [logPath(2)]: actionsLog("FAIL src/server.test.ts"),
+    });
+    const assessment = await assessCiFailure(request, target());
+    expect(assessment.classification).toMatchObject({
+      files: ["src/server.test.ts"],
+      kind: "own-code",
+    });
   });
 
   describe("a failure outside the diff", () => {

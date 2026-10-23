@@ -26,8 +26,8 @@ import type { PullRequestFacts } from "#lib/github/ci/pull-request";
  * maintainer, because silence on a red check nobody could read is the worse
  * outcome.
  *
- * Besides the run, its failed jobs' logs and the pull request's files, it
- * reads the base branch's latest completed run of the same
+ * Besides the run, its failed jobs' logs and every file the pull request
+ * changes, it reads the base branch's latest completed run of the same
  * workflow and that run's jobs, which is what tells a stale base from a
  * caller the diff broke (`./classify.ts`).
  */
@@ -39,6 +39,9 @@ const MAX_LOGS_READ = 3;
 const LOG_TAIL_LINES = 400;
 
 const PAGE = 100;
+
+/** GitHub lists at most 3,000 of a pull request's files, a hundred a page. */
+const MAX_FILE_PAGES = 30;
 
 const RUN = z.object({
   conclusion: z.string().nullable(),
@@ -140,12 +143,20 @@ const readDiffFiles = (
   target: AssessTarget
 ): Promise<readonly string[] | null> =>
   soft(async () => {
-    const files = await getJson(
-      request,
-      `/repos/${target.owner}/${target.repo}/pulls/${target.event.pullRequest}/files?per_page=${PAGE}`,
-      FILES
-    );
-    return files.map((file) => file.filename);
+    const files: string[] = [];
+    for (let page = 1; page <= MAX_FILE_PAGES; page += 1) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- pages are sequential by nature
+      const batch = await getJson(
+        request,
+        `/repos/${target.owner}/${target.repo}/pulls/${target.event.pullRequest}/files?per_page=${PAGE}&page=${page}`,
+        FILES
+      );
+      files.push(...batch.map((file) => file.filename));
+      if (batch.length < PAGE) {
+        break;
+      }
+    }
+    return files;
   });
 
 /** What the base says about a job, by the job's name. */
