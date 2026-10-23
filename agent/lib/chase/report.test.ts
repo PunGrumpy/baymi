@@ -18,7 +18,11 @@ const task = {
 const ran = (...runs: (typeof passed)[][]): ChaseState => {
   let state: ChaseState = { ...initialChaseState(), task };
   for (const [index, results] of runs.entries()) {
-    state = recordRun(state, { changeDigest: `d${index}`, results });
+    state = recordRun(state, {
+      changeDigest: `d${index}`,
+      results,
+      treeBefore: `d${index}`,
+    });
   }
   return state;
 };
@@ -72,8 +76,8 @@ describe(stopResult, () => {
 describe(fixPullRequestBody, () => {
   it("shows the checks before and after and the commits", () => {
     const body = fixPullRequestBody({
-      baseline: { changeDigest: "d0", results: [failed] },
-      latest: { changeDigest: "d1", results: [passed] },
+      baseline: { changeDigest: "d0", results: [failed], treeBefore: "d0" },
+      latest: { changeDigest: "d1", results: [passed], treeBefore: "d1" },
       messages: ["fix(math): add both operands\n\nbody"],
       task,
     });

@@ -14,13 +14,15 @@ import { checksOf, fixPullRequestBody } from "#lib/chase/report";
 import type { ChaseResult } from "#lib/chase/result";
 import { chaseState, endChase } from "#lib/chase/state";
 import {
+  BASELINE_TREE_COMMAND,
   CHANGES_COMMAND,
   commitMode,
   decodeListing,
-  DIGEST_COMMAND,
   MODES_COMMAND,
   parseModes,
   REPO_DIR,
+  TREE_COMMAND,
+  treeId,
 } from "#lib/chase/workspace";
 import { env } from "#lib/env";
 import { mintInstallationToken } from "#lib/github/credentials";
@@ -35,8 +37,9 @@ import { releaseSandbox } from "#lib/sandbox";
  * else comes from state and from GitHub. The checkout in state is held to
  * the session's auth once more before anything is read or pushed
  * (`#lib/chase/bind`). The verdict is the check record's,
- * compared with a digest of the change taken now, and an unverified change is
- * refused rather than pushed: it goes to `stop_chase` instead. Where the
+ * compared with the tree id taken now (the change is that tree minus the
+ * clean checkout, so only the model's own edits go), and an unverified change
+ * is refused rather than pushed: it goes to `stop_chase` instead. Where the
  * commits go is decided at the push, from GitHub (`#lib/chase/deliver`). The
  * files come from the sandbox as bytes; the runtime pushes them through the
  * Git Data API with the installation token, which never enters the sandbox.
@@ -87,10 +90,11 @@ export default defineTool({
     if (!grouping.ok) {
       return { problems: grouping.problems, refused: "Nothing was pushed." };
     }
-    const digest = await sandbox.run({ command: DIGEST_COMMAND });
     const verdict = fixVerdict({
       baseline: state.baseline,
-      currentDigest: digest.exitCode === 0 ? digest.stdout.trim() : "",
+      cleanTree: state.cleanTree,
+      currentDigest: treeId(await sandbox.run({ command: TREE_COMMAND })),
+      headTree: treeId(await sandbox.run({ command: BASELINE_TREE_COMMAND })),
       latest: state.latest,
     });
     if (!verdict.verified) {

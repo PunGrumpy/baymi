@@ -10,10 +10,21 @@ import {
   MAX_CHECK_RUNS,
   readScripts,
   reproduced,
+  rewriteReason,
+  rewrote,
   tail,
+  parseNameStatus,
 } from "#lib/chase/checks";
-import { chaseState, recordRun } from "#lib/chase/state";
-import { DIGEST_COMMAND, REPO_DIR } from "#lib/chase/workspace";
+import { stopResult } from "#lib/chase/report";
+import { chaseState, endChase, recordRun } from "#lib/chase/state";
+import {
+  decodeListing,
+  REPO_DIR,
+  TREE_COMMAND,
+  treeDiffCommand,
+  treeId,
+} from "#lib/chase/workspace";
+import { releaseSandbox } from "#lib/sandbox";
 
 /**
  * Installs dependencies and runs the project's own checks, and records the
@@ -22,10 +33,14 @@ import { DIGEST_COMMAND, REPO_DIR } from "#lib/chase/workspace";
  * @remarks
  * The commands come from `#lib/chase/checks`, not from the model. The first
  * run is the reproduction, on the head as it is, and the record says whether
- * it failed. Every later run is an attempt. The record holds a digest of the
- * change taken before the checks ran, so a check that rewrites files, or an
- * edit after the run, shows up at push as a change the checks did not cover.
- * Each command is bounded by what is left of the sandbox budget.
+ * it failed. Every later run is an attempt. The record holds the tree before
+ * the run (B, the clean checkout plus the model's own edits) and the tree
+ * after it (C). The install is frozen, so a stale lockfile fails rather than
+ * being rewritten; and if C differs from B, the install or a check rewrote a
+ * tracked or non-ignored file, which is not the model's change and not what
+ * the checks passed on. The chase then ends, naming the paths, rather than
+ * pushing them or asking the model to decide. Each command is bounded by
+ * what is left of the sandbox budget.
  */
 export default defineTool({
   description:
@@ -64,12 +79,11 @@ export default defineTool({
         output: tail(`${result.stdout}\n${result.stderr}`.trim()),
       };
     };
+    // B: the clean checkout plus whatever the model has edited so far.
+    const treeBefore = treeId(await sandbox.run({ command: TREE_COMMAND }));
     const results: CheckResult[] = [
       await run("install", installCommand(state.packageManager, timeout)),
     ];
-    // The digest is taken after the install, which may rewrite the lockfile,
-    // and before the checks, which must not change anything that is pushed.
-    const digestRun = await sandbox.run({ command: DIGEST_COMMAND });
     if (results[0]?.exitCode === 0) {
       const scripts = readScripts(
         await sandbox.readTextFile({ path: `${REPO_DIR}/package.json` })
@@ -83,12 +97,30 @@ export default defineTool({
         results.push(await run(check.name, check.command));
       }
     }
-    // A digest that could not be taken is recorded empty, which no push accepts.
-    const record = {
-      changeDigest: digestRun.exitCode === 0 ? digestRun.stdout.trim() : "",
-      results,
-    };
+    // C: what the install and the checks left. A tree that could not be
+    // measured is recorded empty, which no push accepts.
+    const changeDigest = treeId(await sandbox.run({ command: TREE_COMMAND }));
+    const record = { changeDigest, results, treeBefore };
     chaseState.update((current) => recordRun(current, record));
+    if (rewrote(record)) {
+      const diff = treeDiffCommand(treeBefore, changeDigest);
+      const listed =
+        diff === null ? null : await sandbox.run({ command: diff });
+      const paths =
+        listed === null || listed.exitCode !== 0
+          ? []
+          : parseNameStatus(decodeListing(listed.stdout)).map(
+              (change) => change.path
+            );
+      const result = stopResult({
+        budgetSpent: false,
+        reason: rewriteReason(paths),
+        state: chaseState.get(),
+      });
+      chaseState.update((current) => endChase(current, result));
+      await releaseSandbox(() => ctx.getSandbox());
+      return { ran: results, result };
+    }
     const runsLeft = MAX_CHECK_RUNS - state.checkRuns - 1;
     // The first run is the reproduction, and the model is told whether it saw the failure.
     return state.baseline === null

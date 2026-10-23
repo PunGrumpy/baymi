@@ -56,16 +56,23 @@ export const commandTimeout = (budgetLeftSeconds: number): number =>
   Math.max(1, Math.min(CHECK_TIMEOUT_SECONDS, Math.floor(budgetLeftSeconds)));
 
 /**
- * Installs dependencies with lifecycle scripts off, so nothing a dependency
- * ships runs at install time.
+ * The install flags per package manager: lifecycle scripts off, so nothing a
+ * dependency ships runs at install time, and the lockfile frozen, so an
+ * install that would rewrite it fails instead of changing a file the chase
+ * might then push. `npm ci` is npm's frozen install; Yarn's is `--immutable`.
  */
+const INSTALLS: Readonly<Record<PackageManager, string>> = {
+  bun: "bun install --frozen-lockfile --ignore-scripts",
+  npm: "npm ci --ignore-scripts",
+  pnpm: "pnpm install --frozen-lockfile --ignore-scripts",
+  yarn: "yarn install --immutable --mode=skip-build",
+};
+
+/** Installs dependencies with lifecycle scripts off and the lockfile frozen. */
 export const installCommand = (
   manager: PackageManager,
   timeoutSeconds: number = CHECK_TIMEOUT_SECONDS
-): string =>
-  manager === "yarn"
-    ? `timeout ${timeoutSeconds} yarn install --mode=skip-build`
-    : `timeout ${timeoutSeconds} ${manager} install --ignore-scripts`;
+): string => `timeout ${timeoutSeconds} ${INSTALLS[manager]}`;
 
 const PACKAGE_JSON = z.object({
   scripts: z.record(z.string(), z.string()).default({}),
@@ -126,10 +133,50 @@ export const tail = (text: string, max = OUTPUT_TAIL_CHARACTERS): string =>
 
 /** The checks as they stood when they last ran. */
 export interface CheckRecord {
-  /** A digest of the working tree's changes at the time the checks ran; empty when it could not be taken. */
+  /**
+   * C: the tree id the checks left behind (`TREE_COMMAND`); empty when it
+   * could not be taken.
+   */
   readonly changeDigest: string;
   readonly results: readonly CheckResult[];
+  /**
+   * B: the tree id just before the run, which is the clean checkout plus the
+   * model's own edits; empty when it could not be taken.
+   */
+  readonly treeBefore: string;
 }
+
+/**
+ * Whether a run left the tree different from how it found it: the install or
+ * a check rewrote, created or deleted a tracked or non-ignored file. Both
+ * trees must have been measured; a run that could not be is not a rewrite
+ * but is never verified either.
+ */
+export const rewrote = (record: CheckRecord | null): boolean =>
+  record !== null &&
+  record.treeBefore !== "" &&
+  record.changeDigest !== "" &&
+  record.treeBefore !== record.changeDigest;
+
+/** How many paths a rewrite message names. */
+const REWRITTEN_SHOWN = 10;
+
+/**
+ * The reason a chase stops when the checks changed files, naming the paths.
+ * An empty list means the trees differed but the paths could not be listed.
+ */
+export const rewriteReason = (paths: readonly string[]): string => {
+  const shown = paths.slice(0, REWRITTEN_SHOWN).join(", ");
+  const more =
+    paths.length > REWRITTEN_SHOWN
+      ? ` and ${paths.length - REWRITTEN_SHOWN} more`
+      : "";
+  const named =
+    paths.length === 0
+      ? "files the sandbox could not list"
+      : `${paths.length} file${paths.length === 1 ? "" : "s"} (${shown}${more})`;
+  return `The project's own install or checks rewrote ${named}, so what they passed on is not the change the chase made, and nothing was pushed.`;
+};
 
 /** Whether any check in a record failed: a reproduction, on the first run. */
 export const reproduced = (record: CheckRecord | null): boolean =>
@@ -145,32 +192,61 @@ export interface Verdict {
  * Decides whether the change about to be pushed is a verified fix.
  *
  * @remarks
- * Verified means: the first run, on the head as it was, failed (so there was
- * something to fix and the checks can see it); a later run passed every
- * check; and the change has not moved since that run. Every reason is
- * collected rather than stopping at the first, because the result lists them
- * all.
+ * Verified means: the first run, on the head as it was (the tree before it
+ * is the clean checkout), failed, so there was something to fix and the
+ * checks can see it; a later run passed every check; no run's install or
+ * checks changed a file; the checkout's baseline commit has not moved; and
+ * the tree has not moved since the last run. Every reason is collected
+ * rather than stopping at the first, because the result lists them all.
  */
 export const fixVerdict = (input: {
   readonly baseline: CheckRecord | null;
+  /** A: the baseline commit's tree, taken right after the clean checkout. */
+  readonly cleanTree: string;
   readonly currentDigest: string;
+  /** The baseline commit's tree now: it moves if code in the sandbox ran `git commit` or `git reset`. */
+  readonly headTree: string;
   /** The latest run, or `null` when only the baseline ran. */
   readonly latest: CheckRecord | null;
 }): Verdict => {
-  const { baseline, currentDigest, latest } = input;
+  const { baseline, cleanTree, currentDigest, headTree, latest } = input;
   const reasons: string[] = [];
+  let unmeasured = false;
   if (baseline === null) {
     reasons.push("The failure was never reproduced: the checks never ran.");
   } else if (!reproduced(baseline)) {
     reasons.push(
       "The failure did not reproduce: every check passed on the head as it was."
     );
+  } else if (baseline.treeBefore === "" || cleanTree === "") {
+    unmeasured = true;
+  } else if (baseline.treeBefore !== cleanTree) {
+    reasons.push(
+      "The failure was reproduced on a tree that was already edited, not on the head as it was."
+    );
+  }
+  if (headTree === "" || headTree !== cleanTree) {
+    reasons.push(
+      headTree === ""
+        ? "The checkout's baseline could not be measured in the sandbox."
+        : "The checkout's baseline commit moved."
+    );
+  }
+  for (const record of [baseline, latest]) {
+    if (rewrote(record)) {
+      reasons.push("The install or the checks rewrote files.");
+      break;
+    }
   }
   if (latest === null) {
     reasons.push("The checks did not run after the change.");
   } else {
-    if (latest.changeDigest === "" || currentDigest === "") {
-      reasons.push("The change could not be measured in the sandbox.");
+    if (
+      latest.changeDigest === "" ||
+      latest.treeBefore === "" ||
+      currentDigest === ""
+    ) {
+      unmeasured = true;
     } else if (latest.changeDigest !== currentDigest) {
       reasons.push("The code changed after the checks last ran.");
     }
@@ -182,6 +258,9 @@ export const fixVerdict = (input: {
         reasons.push(`${result.name} exited with ${result.exitCode}.`);
       }
     }
+  }
+  if (unmeasured) {
+    reasons.push("The change could not be measured in the sandbox.");
   }
   return { reasons, verified: reasons.length === 0 };
 };

@@ -14,8 +14,10 @@ import { chaseState, endChase } from "#lib/chase/state";
 import {
   ARCHIVE_PATH,
   BASELINE_COMMAND,
+  BASELINE_TREE_COMMAND,
   REPO_DIR,
   ROOT_FILES_COMMAND,
+  treeId,
   UNPACK_COMMAND,
 } from "#lib/chase/workspace";
 import { env } from "#lib/env";
@@ -44,7 +46,8 @@ const PULL = z.object({
  * the sandbox: the runtime downloads the head commit's archive and writes
  * the bytes in. The pull request, its head and its branch go into durable
  * state, which is what `push_fix` pushes against, so they are fixed here and
- * nothing the model reads later can move them.
+ * nothing the model reads later can move them. The tree id of the clean
+ * checkout is recorded too (A), which every later change is measured against.
  *
  * The arguments are the model's, so they are held to the session's auth
  * first (`#lib/chase/bind`): the pull request the turn is about and, for the
@@ -121,6 +124,15 @@ export default defineTool({
         };
       }
     }
+    const cleanTree = treeId(
+      await sandbox.run({ command: BASELINE_TREE_COMMAND })
+    );
+    if (cleanTree === "") {
+      return {
+        refused:
+          "Preparing the checkout failed: the clean tree could not be measured.",
+      };
+    }
     const listing = await sandbox.run({ command: ROOT_FILES_COMMAND });
     const packageManager = detectPackageManager(
       listing.stdout.split("\n").filter(Boolean)
@@ -130,6 +142,7 @@ export default defineTool({
     );
     chaseState.update((state) => ({
       ...state,
+      cleanTree,
       packageManager,
       startedAt: Date.now(),
       task: {

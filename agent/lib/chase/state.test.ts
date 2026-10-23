@@ -6,6 +6,7 @@ import { endChase, initialChaseState, recordRun } from "#lib/chase/state";
 const run = (digest: string, exitCode: number) => ({
   changeDigest: digest,
   results: [{ exitCode, name: "test", output: "" }],
+  treeBefore: digest,
 });
 
 describe(initialChaseState, () => {
@@ -13,6 +14,7 @@ describe(initialChaseState, () => {
     expect(initialChaseState()).toStrictEqual({
       baseline: null,
       checkRuns: 0,
+      cleanTree: "",
       latest: null,
       packageManager: null,
       result: null,

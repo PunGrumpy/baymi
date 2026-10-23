@@ -60,8 +60,34 @@ export const BASELINE_COMMAND = [
 /** Stages every change outside the excluded paths. */
 const STAGE = `cd ${REPO_DIR} && git add -A`;
 
-/** A digest of the staged change; equal digests mean the same change. */
-export const DIGEST_COMMAND = `${STAGE} && git diff --cached --binary HEAD | sha256sum | cut -d' ' -f1`;
+/**
+ * A git tree id for everything the checkout holds that is tracked or not
+ * ignored: equal ids are the same files with the same modes and bytes.
+ *
+ * @remarks
+ * The chase takes it three times, and the three are compared rather than
+ * trusted. A is the baseline commit's tree, right after the clean checkout.
+ * B is the tree before a run of the checks, which is A plus the model's own
+ * edits. C is the tree after the run. The model's change is B minus A, and it
+ * is only that when C equals B: a formatter in a test script or an install
+ * that rewrites a lockfile makes C differ, and what the checks left behind
+ * is then not something the model wrote or the checks passed on.
+ */
+export const TREE_COMMAND = `${STAGE} && git write-tree`;
+
+/** A: the tree of the baseline commit, the clean checkout every change is measured against. */
+export const BASELINE_TREE_COMMAND = `cd ${REPO_DIR} && git rev-parse 'HEAD^{tree}'`;
+
+const TREE_ID = /^[0-9a-f]{40}$/u;
+
+/** A tree id a command printed, or `""` when it failed or printed anything else. */
+export const treeId = (run: {
+  readonly exitCode: number;
+  readonly stdout: string;
+}): string => {
+  const printed = run.stdout.trim();
+  return run.exitCode === 0 && TREE_ID.test(printed) ? printed : "";
+};
 
 /**
  * Pipes a NUL-separated listing through base64, so it survives a sandbox
@@ -72,6 +98,20 @@ const ENCODE = "base64 | tr -d '\\n'";
 
 /** The changed paths, NUL-separated and base64-encoded, renames split into delete and add. */
 export const CHANGES_COMMAND = `${STAGE} && git diff --cached --name-status -z --no-renames HEAD | ${ENCODE}`;
+
+/**
+ * The paths that differ between two trees, in {@link CHANGES_COMMAND}'s
+ * format, or `null` when either id is not a tree id. The ids come from the
+ * sandbox, where the project's code runs, so they are checked before they
+ * reach a shell.
+ */
+export const treeDiffCommand = (
+  before: string,
+  after: string
+): string | null =>
+  TREE_ID.test(before) && TREE_ID.test(after)
+    ? `cd ${REPO_DIR} && git diff-tree -r --name-status -z --no-renames ${before} ${after} | ${ENCODE}`
+    : null;
 
 /** The staged entries with their modes, NUL-separated and base64-encoded. */
 export const MODES_COMMAND = `${STAGE} && git ls-files -s -z | ${ENCODE}`;

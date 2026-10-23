@@ -31,6 +31,11 @@ export interface ChaseState {
   readonly baseline: CheckRecord | null;
   /** How many times `run_checks` ran; the first is the reproduction. */
   readonly checkRuns: number;
+  /**
+   * A: the tree id of the baseline commit, taken right after the clean
+   * checkout; empty before one. Every change is measured against it.
+   */
+  readonly cleanTree: string;
   /** The latest run after the reproduction, or `null` before one. */
   readonly latest: CheckRecord | null;
   readonly packageManager: PackageManager | null;
@@ -45,6 +50,7 @@ export interface ChaseState {
 export const initialChaseState = (): ChaseState => ({
   baseline: null,
   checkRuns: 0,
+  cleanTree: "",
   latest: null,
   packageManager: null,
   result: null,
