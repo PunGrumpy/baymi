@@ -192,18 +192,26 @@ export const createRerunRecord = (
 export const CHASE_TOOL = "chase_pull_request";
 
 export interface ChaseResultRecord {
-  readonly note: (turnId: string, outcome: ActionOutcome) => void;
-  /** What this turn's chase tool answered, or `null` when it was not called. */
-  readonly result: (turnId: string) => ChaseResult | null;
+  /** `action.result` on a CI turn: kept under the turn's chase key (`CiTurn.key`). */
+  readonly note: (key: string, outcome: ActionOutcome) => void;
+  /** What the chase tool answered on the CI turn with this key, or `null` when it was not called. */
+  readonly result: (key: string) => ChaseResult | null;
 }
 
 /**
- * What each turn's chase tool answered, read off its `action.result`.
+ * What each CI turn's chase tool answered, read off its `action.result`,
+ * keyed by the chase: the run and the attempt that failed.
  *
  * @remarks
  * The end of the turn renders the Slack line from it, so the outcome comes
- * from the tool's output and not from the model's last message. In memory and
- * per runtime like the records above: a cold start between the tool's result
+ * from the tool's output and not from the model's last message. Keyed like
+ * the rerun record above, and for the same reason: eve numbers turns per
+ * session and every chase's session starts at the same one, so keyed by the
+ * turn id a second pull request's chase read the first one's `pushed` and its
+ * red check was logged as fixed, with no Slack line. The channel notes a
+ * result only on a turn that carries a chase key; a chase the maintainer asks
+ * for has no CI turn to settle. In memory and per
+ * runtime like the records above: a cold start between the tool's result
  * and the end of the turn loses it, and the turn then speaks as if no chase
  * ran, which pings the maintainer about a pull request that may already be
  * fixed rather than staying silent about one that is not.
@@ -213,7 +221,7 @@ export const createChaseResultRecord = (
 ): ChaseResultRecord => {
   const results = new Map<string, ChaseResult>();
   return {
-    note(turnId, outcome) {
+    note(key, outcome) {
       if (outcome.toolName !== CHASE_TOOL || outcome.isError === true) {
         return;
       }
@@ -221,7 +229,7 @@ export const createChaseResultRecord = (
       if (parsed === undefined) {
         return;
       }
-      results.set(turnId, parsed);
+      results.set(key, parsed);
       if (results.size > maxTurns) {
         const [oldest] = results.keys();
         if (oldest !== undefined) {
@@ -229,6 +237,6 @@ export const createChaseResultRecord = (
         }
       }
     },
-    result: (turnId) => results.get(turnId) ?? null,
+    result: (key) => results.get(key) ?? null,
   };
 };

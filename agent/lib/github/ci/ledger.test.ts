@@ -161,48 +161,79 @@ describe(createChaseResultRecord, () => {
     pullRequest: "https://github.com/PunGrumpy/baymi/pull/7",
     reason: "Today's 3 chases are used up.",
   });
+  const pushed = {
+    ...output,
+    branch: "feat/sum",
+    commits: ["c1"],
+    reason: "Pushed 1 commit to feat/sum.",
+    status: "pushed",
+  } as const;
 
-  it("keeps what the chase tool answered on each turn", () => {
+  it("keeps what the chase tool answered on each chase", () => {
     const record = createChaseResultRecord();
-    record.note("turn-1", {
+    record.note(chase("baymi", 100).key, {
       output: structuredClone(output),
       status: "completed",
       toolName: CHASE_TOOL,
     });
-    expect(record.result("turn-1")).toStrictEqual(output);
-    expect(record.result("turn-2")).toBeNull();
+    expect(record.result(chase("baymi", 100).key)).toStrictEqual(output);
+    expect(record.result(chase("baymi", 101).key)).toBeNull();
+  });
+
+  it("keeps two pull requests' chases apart, though both are the first turn of their own session", () => {
+    const record = createChaseResultRecord();
+    const first = chase("baymi", 100);
+    const second = chase("logixlysia", 200);
+    record.note(first.key, {
+      output: pushed,
+      status: "completed",
+      toolName: CHASE_TOOL,
+    });
+    // The second chase never called the tool: it must not read the first
+    // one's push and log its own red check as fixed.
+    expect(record.result(second.key)).toBeNull();
+    record.note(second.key, {
+      output,
+      status: "completed",
+      toolName: CHASE_TOOL,
+    });
+    expect(record.result(first.key)).toStrictEqual(pushed);
+    expect(record.result(second.key)).toStrictEqual(output);
   });
 
   it("ignores other tools, failed calls, and output that is not a result", () => {
     const record = createChaseResultRecord();
-    record.note("a", {
+    const other = chase("baymi", 100).key;
+    const failed = chase("baymi", 101).key;
+    const garbled = chase("baymi", 102).key;
+    record.note(other, {
       output,
       status: "completed",
       toolName: "github__rerunWorkflowRun",
     });
-    record.note("b", {
+    record.note(failed, {
       isError: true,
       output,
       status: "completed",
       toolName: CHASE_TOOL,
     });
-    record.note("c", {
+    record.note(garbled, {
       output: "pushed",
       status: "completed",
       toolName: CHASE_TOOL,
     });
-    expect(["a", "b", "c"].map((turn) => record.result(turn))).toStrictEqual([
+    expect([other, failed, garbled].map(record.result)).toStrictEqual([
       null,
       null,
       null,
     ]);
   });
 
-  it("forgets the oldest turn past its bound", () => {
+  it("forgets the oldest chase past its bound", () => {
     const record = createChaseResultRecord(1);
-    record.note("old", { output, toolName: CHASE_TOOL });
-    record.note("new", { output, toolName: CHASE_TOOL });
-    expect(record.result("old")).toBeNull();
-    expect(record.result("new")).toStrictEqual(output);
+    record.note(chase("baymi", 100).key, { output, toolName: CHASE_TOOL });
+    record.note(chase("baymi", 101).key, { output, toolName: CHASE_TOOL });
+    expect(record.result(chase("baymi", 100).key)).toBeNull();
+    expect(record.result(chase("baymi", 101).key)).toStrictEqual(output);
   });
 });
