@@ -61,9 +61,9 @@ Commits are Conventional Commits: `type(scope): imperative summary`, a blank lin
 
 ## What is bounded, and what is not
 
-**Bounded by code, with a test each:**
+**Bounded by code.** Each rule has a unit test in its own module. Three of them hold only if a tool or the channel calls the rule, so those calls are tested where they are made: `agent/lib/chase/wiring.test.ts` runs `prepare_checkout`, `push_fix` and `run_checks` with a fake eve context and watches what they touch after a refusal, and `agent/lib/github/ci/chase-key.test.ts` holds the channel to the chase key. Each fails if the call is removed.
 
-- **The pull request.** A chase acts only on the pull request the session was handed. The gate and `prepare_checkout` both hold the repository, the number and, for the app, the head to the session's auth; `push_fix` checks again. Any mismatch ends the chase as `refused`. A turn with no pull request behind it admits none (`bind.ts`).
+- **The pull request.** A chase acts only on the pull request the session was handed. The gate and `prepare_checkout` both hold the repository, the number and, for the app, the head to the session's auth; `push_fix` checks again. Any mismatch ends the chase as `refused`. A turn with no pull request behind it admits none (`bind.ts`). On the maintainer's path the turn carries no head, so `prepare_checkout` takes the pull request's head as it is when the checkout is made, not the head the gate admitted. That is intended: the maintainer asked for the pull request to be fixed, so the latest head is the one to fix, and a head that moves after the checkout is `superseded`. It can spend the budget slot claimed for the earlier head on the later one; the app's path is bound to the head its CI turn saw.
 - **Fast-forward only.** The branch moves with `force: false`, and each segment of its name is percent-encoded, so a head named `main#x` cannot address `main`. Commits are chained on the head the chase checked out, and a head that moved in the meantime is `superseded`.
 - **Regular files only.** Any mode other than `100644` and `100755` (a symlink, a submodule) is refused, as is a changed path with no index entry.
 - **The model's own edits only.** The index minus the clean checkout (A) is pushed, and only when the install and the checks left the tree as they found it (B equals C). The install is frozen.
