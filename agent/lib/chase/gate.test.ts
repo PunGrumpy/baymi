@@ -154,6 +154,39 @@ describe(admitChase, () => {
     );
   });
 
+  it("holds the maintainer to the pull request their turn is about, before reading GitHub", async () => {
+    const send = github();
+    const elsewhere = await admitChase(
+      PRINCIPALS.maintainer,
+      { ...REQUEST, pullRequest: 7 },
+      deps({ send })
+    );
+    const otherRepository = await admitChase(
+      PRINCIPALS.maintainer,
+      { ...REQUEST, repository: "PunGrumpy/other" },
+      deps({ send })
+    );
+    const issueComment = await admitChase(
+      {
+        ...PRINCIPALS.maintainer,
+        attributes: {
+          ...PRINCIPALS.maintainer.attributes,
+          pull_request_number: "",
+        },
+      },
+      REQUEST,
+      deps({ send })
+    );
+    expect(!elsewhere.ok && elsewhere.result.reason).toMatch(/not .*#7/u);
+    expect(!otherRepository.ok && otherRepository.result.status).toBe(
+      "refused"
+    );
+    expect(!issueComment.ok && issueComment.result.reason).toMatch(
+      /not about a pull request/u
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("refuses every class the chase does not admit, before reading GitHub", async () => {
     for (const trustClass of [
       "collaborator",

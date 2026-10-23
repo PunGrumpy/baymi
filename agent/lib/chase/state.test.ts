@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { initialChaseState, recordRun } from "#lib/chase/state";
+import { refusedResult } from "#lib/chase/result";
+import { endChase, initialChaseState, recordRun } from "#lib/chase/state";
 
 const run = (digest: string, exitCode: number) => ({
   changeDigest: digest,
@@ -30,5 +31,21 @@ describe(recordRun, () => {
     expect(state.baseline?.changeDigest).toBe("d0");
     expect(state.latest?.changeDigest).toBe("d2");
     expect(state.checkRuns).toBe(3);
+  });
+});
+
+const refused = (reason: string) =>
+  refusedResult({
+    headSha: "abc",
+    pullRequest: "https://github.com/PunGrumpy/baymi/pull/1",
+    reason,
+  });
+
+describe(endChase, () => {
+  it("records the first outcome and keeps it", () => {
+    const first = endChase(initialChaseState(), refused("first"));
+    const second = endChase(first, refused("second"));
+    expect(first.result?.reason).toBe("first");
+    expect(second.result?.reason).toBe("first");
   });
 });

@@ -2,6 +2,7 @@ import type { SessionAuthContext } from "eve/context";
 import type { ApprovalStatus } from "eve/tools/approval";
 import { z } from "zod";
 
+import { APP_SCOPE, bindingProblem } from "#lib/chase/bind";
 import { planPush, REFUSAL_REASONS } from "#lib/chase/branch";
 import { BUDGET_REFUSALS, claimChase, headKey } from "#lib/chase/budget";
 import type { BudgetStore } from "#lib/chase/budget";
@@ -11,7 +12,7 @@ import type { ChaseResult } from "#lib/chase/result";
 import { skipPullRequest } from "#lib/github/ci/pull-request";
 import { readCiTurn } from "#lib/github/ci/turn";
 import { BOT_NAME } from "#lib/github/comments";
-import { pullRequestFromAuth, pullRequestUrl } from "#lib/github/pull-requests";
+import { pullRequestUrl } from "#lib/github/pull-requests";
 import { classifyPrincipal, mayChase } from "#lib/trust";
 import type { TrustContext } from "#lib/trust";
 
@@ -122,20 +123,14 @@ interface AppTarget {
   readonly failure: string;
 }
 
-/** What the app may chase: the pull request its own CI turn is about, and only the diff's own failure. */
-const appTarget = (
-  auth: SessionAuthContext | null,
-  request: ChaseRequest
-): AppTarget | null => {
+/**
+ * What the app chases: the failure its own CI turn recorded, at the head that
+ * turn saw. `bindingProblem` has already held the request to that turn's pull
+ * request and to the diff's own code.
+ */
+const appTarget = (auth: SessionAuthContext | null): AppTarget | null => {
   const turn = readCiTurn(auth);
-  const anchor = pullRequestFromAuth(auth);
-  if (
-    turn === null ||
-    anchor === null ||
-    turn.kind !== "own-code" ||
-    anchor.number !== request.pullRequest ||
-    anchor.repository.toLowerCase() !== request.repository.toLowerCase()
-  ) {
+  if (turn === null) {
     return null;
   }
   const evidence = turn.evidence === "" ? "" : `: ${turn.evidence}`;
@@ -218,12 +213,22 @@ export const admitChase = async (
   if (!deps.hasModelKey) {
     return refuse("ANTHROPIC_API_KEY is not set, so the chase cannot run.");
   }
+  const problem = bindingProblem(
+    auth,
+    {
+      headSha: null,
+      pullRequest: request.pullRequest,
+      repository: request.repository,
+    },
+    deps.trust
+  );
+  if (problem !== null) {
+    return refuse(problem);
+  }
   const byApp = classifyPrincipal(auth, deps.trust) === "app";
-  const target = byApp ? appTarget(auth, request) : null;
+  const target = byApp ? appTarget(auth) : null;
   if (byApp && target === null) {
-    return refuse(
-      "The app chases only the pull request its CI turn is about, and only when the diff's own code failed."
-    );
+    return refuse(APP_SCOPE);
   }
   const read = await deps.send(
     `/repos/${request.repository}/pulls/${request.pullRequest}`,

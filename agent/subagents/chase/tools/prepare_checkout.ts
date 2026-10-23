@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 import { downloadArchive } from "#lib/chase/archive";
+import { bindingProblem, bindingRefusal } from "#lib/chase/bind";
 import { SANDBOX_BUDGET_MS } from "#lib/chase/budget";
 import {
   checkCommands,
@@ -9,7 +10,7 @@ import {
   readScripts,
 } from "#lib/chase/checks";
 import { githubSend } from "#lib/chase/commit";
-import { chaseState } from "#lib/chase/state";
+import { chaseState, endChase } from "#lib/chase/state";
 import {
   ARCHIVE_PATH,
   BASELINE_COMMAND,
@@ -21,6 +22,7 @@ import { env } from "#lib/env";
 import { mintInstallationToken } from "#lib/github/credentials";
 import { REPOSITORY_PATTERN } from "#lib/github/dependencies";
 import { listInstalledRepositories } from "#lib/github/installation";
+import { releaseSandbox } from "#lib/sandbox";
 import { mayChase } from "#lib/trust";
 
 const PULL = z.object({
@@ -42,18 +44,35 @@ const PULL = z.object({
  * the sandbox: the runtime downloads the head commit's archive and writes
  * the bytes in. The pull request, its head and its branch go into durable
  * state, which is what `push_fix` pushes against, so they are fixed here and
- * nothing the model reads later can move them. It refuses a head that is not
- * the pull request's head now, so the chase works on the commit the `chase`
- * tool admitted. One checkout per session; the sandbox budget starts here.
+ * nothing the model reads later can move them.
+ *
+ * The arguments are the model's, so they are held to the session's auth
+ * first (`#lib/chase/bind`): the pull request the turn is about and, for the
+ * app, the head its CI turn saw. Any other value ends the chase with a
+ * refused result rather than letting it move to a pull request that never
+ * went through the gate. It also refuses a head that is not the pull
+ * request's head now. One checkout per session; the sandbox budget starts
+ * here.
  */
 export default defineTool({
   description:
     "Start the chase: unpack the pull request's head at /workspace/repo. Call it first, once, with the repository, the pull request number and the head sha from your message.",
   async execute({ headSha, pullRequest, repository }, ctx) {
-    if (
-      !mayChase(ctx.session.auth.current, { slackTeamId: env.SLACK_TEAM_ID })
-    ) {
+    const auth = ctx.session.auth.current;
+    const trust = { slackTeamId: env.SLACK_TEAM_ID };
+    if (!mayChase(auth, trust)) {
       return { refused: "Only the app and the maintainer can start a chase." };
+    }
+    const target = { headSha, pullRequest, repository };
+    const problem = bindingProblem(auth, target, trust);
+    if (problem !== null) {
+      const result = bindingRefusal(auth, target, problem);
+      const started = chaseState.get().task !== null;
+      chaseState.update((state) => endChase(state, result));
+      if (started) {
+        await releaseSandbox(() => ctx.getSandbox());
+      }
+      return { refused: problem, result: chaseState.get().result };
     }
     if (chaseState.get().task !== null) {
       return { refused: "This session already has a checkout." };

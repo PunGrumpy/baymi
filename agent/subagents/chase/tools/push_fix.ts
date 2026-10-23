@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
+import { bindingProblem, bindingRefusal } from "#lib/chase/bind";
 import { budgetLeftMs } from "#lib/chase/budget";
 import { fixVerdict, parseNameStatus } from "#lib/chase/checks";
 import type { ChangedPath } from "#lib/chase/checks";
@@ -11,7 +12,7 @@ import type { CommitFile, CommitPlan } from "#lib/chase/commit";
 import { deliverFix, groupCommits } from "#lib/chase/deliver";
 import { checksOf, fixPullRequestBody } from "#lib/chase/report";
 import type { ChaseResult } from "#lib/chase/result";
-import { chaseState } from "#lib/chase/state";
+import { chaseState, endChase } from "#lib/chase/state";
 import {
   CHANGES_COMMAND,
   decodeListing,
@@ -20,6 +21,7 @@ import {
   parseModes,
   REPO_DIR,
 } from "#lib/chase/workspace";
+import { env } from "#lib/env";
 import { mintInstallationToken } from "#lib/github/credentials";
 import { releaseSandbox } from "#lib/sandbox";
 
@@ -29,7 +31,9 @@ import { releaseSandbox } from "#lib/sandbox";
  *
  * @remarks
  * The model names the commits: a message and the files for each. Everything
- * else comes from state and from GitHub. The verdict is the check record's,
+ * else comes from state and from GitHub. The checkout in state is held to
+ * the session's auth once more before anything is read or pushed
+ * (`#lib/chase/bind`). The verdict is the check record's,
  * compared with a digest of the change taken now, and an unverified change is
  * refused rather than pushed: it goes to `stop_chase` instead. Where the
  * commits go is decided at the push, from GitHub (`#lib/chase/deliver`). The
@@ -50,6 +54,15 @@ export default defineTool({
     }
     if (state.result !== null) {
       return { refused: "The chase is over.", result: state.result };
+    }
+    const problem = bindingProblem(ctx.session.auth.current, task, {
+      slackTeamId: env.SLACK_TEAM_ID,
+    });
+    if (problem !== null) {
+      const result = bindingRefusal(ctx.session.auth.current, task, problem);
+      chaseState.update((current) => endChase(current, result));
+      await releaseSandbox(() => ctx.getSandbox());
+      return { refused: problem, result };
     }
     if (budgetLeftMs(state.startedAt, Date.now()) <= 0) {
       return { refused: "The sandbox budget is spent. Call stop_chase." };

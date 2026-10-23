@@ -52,6 +52,13 @@ export const initialChaseState = (): ChaseState => ({
   task: null,
 });
 
+/**
+ * Ends the chase with `result`, unless it already ended: the first outcome
+ * stands, so nothing that happens after it can rewrite what was reported.
+ */
+export const endChase = (state: ChaseState, result: ChaseResult): ChaseState =>
+  state.result === null ? { ...state, result } : state;
+
 /** Records one run of the checks: the first is the reproduction, every later one the latest. */
 export const recordRun = (state: ChaseState, run: CheckRecord): ChaseState =>
   state.baseline === null
