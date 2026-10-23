@@ -509,6 +509,11 @@ const settleReply = async (
  *   repository out. The row never gates: findings settle `neutral`.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
+ * - A message that arrives while a turn runs waits for it (`turnPolicy:
+ *   "queue"`) rather than steering into it, which would hand the running
+ *   turn the newcomer's auth: a mention during a review would take the
+ *   review's reply. Queued messages fold into one turn when their auth is
+ *   the same, so a burst of pushes is still one follow-up review.
  * - A CI turn runs as the app in a session of its own, in task mode
  *   (`#lib/github/ci/session`): it is offered no question, cannot park, and
  *   shares no turn, state or history with the review or a mention.
@@ -649,6 +654,7 @@ const pullRequestChannel = githubChannel({
       },
       chaseDeps(ctx)
     ),
+  turnPolicy: "queue",
 });
 
 export default withChaseSessions(pullRequestChannel);
