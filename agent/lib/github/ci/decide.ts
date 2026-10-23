@@ -54,7 +54,8 @@ export const decideRerun = (input: {
  *
  * - `own-code`: the diff's own code failed. Until the unit that fixes it
  *   exists nobody else can clear it.
- * - `stale-base`: it needs a rebase, which only the author does.
+ * - `stale-base`: the base fails the same job, so the fix is the base's,
+ *   and the pull request picks it up on its next push.
  * - `second-failure`: it failed again after a rerun, so it was not a flake.
  * - `rerun-not-done`: a flake the guard or the turn did not rerun.
  * - `cannot-rerun`: a flake GitHub will not rerun (a timeout it reports as cancelled).
