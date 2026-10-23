@@ -37,16 +37,34 @@ const STEPS_BEFORE_A_GROUNDED_REPLY = 2;
 /** Only bounds what a warm runtime accumulates across unrelated sessions. */
 const MAX_REMEMBERED_TURNS = 32;
 
+/**
+ * A turn, named by its session as well as its id.
+ *
+ * @remarks
+ * eve numbers turns from `turn_0` in every session, so the id alone is
+ * shared by the first turn of every review and of every CI chase, which
+ * runs in a session of its own (`#lib/github/ci/session`). Keyed by the
+ * id alone, an unrelated chase's settled tool call would ground a review
+ * that read nothing.
+ */
+export interface TurnKey {
+  readonly sessionId: string;
+  readonly turnId: string;
+}
+
+const keyOf = ({ sessionId, turnId }: TurnKey): string =>
+  `${sessionId}:${turnId}`;
+
 interface TurnRecord {
   grounded: boolean;
   reported: boolean;
 }
 
 export interface GroundingLedger {
-  readonly isGrounded: (turnId: string) => boolean;
-  readonly note: (turnId: string, outcome: ActionOutcome) => void;
+  readonly isGrounded: (turn: TurnKey) => boolean;
+  readonly note: (turn: TurnKey, outcome: ActionOutcome) => void;
   /** True for the first caller only, so one turn sends one card. */
-  readonly reportOnce: (turnId: string) => boolean;
+  readonly reportOnce: (turn: TurnKey) => boolean;
 }
 
 /** In-memory and per-runtime; a cold start loses the record, which suppresses a review rather than posting one. */
@@ -55,13 +73,13 @@ export const createGroundingLedger = (
 ): GroundingLedger => {
   // Insertion-ordered, so the first key is the oldest turn.
   const turns = new Map<string, TurnRecord>();
-  const record = (turnId: string): TurnRecord => {
-    const existing = turns.get(turnId);
+  const record = (key: string): TurnRecord => {
+    const existing = turns.get(key);
     if (existing !== undefined) {
       return existing;
     }
     const fresh: TurnRecord = { grounded: false, reported: false };
-    turns.set(turnId, fresh);
+    turns.set(key, fresh);
     if (turns.size > maxTurns) {
       const [oldest] = turns.keys();
       if (oldest !== undefined) {
@@ -71,21 +89,21 @@ export const createGroundingLedger = (
     return fresh;
   };
   return {
-    isGrounded(turnId) {
-      return turns.get(turnId)?.grounded === true;
+    isGrounded(turn) {
+      return turns.get(keyOf(turn))?.grounded === true;
     },
-    note(turnId, outcome) {
+    note(turn, outcome) {
       if (outcome.isError === true || outcome.kind === SKILL_LOAD_KIND) {
         return;
       }
-      record(turnId).grounded = true;
+      record(keyOf(turn)).grounded = true;
     },
-    reportOnce(turnId) {
-      const turn = record(turnId);
-      if (turn.reported) {
+    reportOnce(turn) {
+      const seen = record(keyOf(turn));
+      if (seen.reported) {
         return false;
       }
-      turn.reported = true;
+      seen.reported = true;
       return true;
     },
   };

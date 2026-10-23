@@ -6,7 +6,7 @@ import type {
   GitHubJsonObject,
 } from "eve/channels/github";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
-import type { SessionContext } from "eve/context";
+import type { SessionAuthContext, SessionContext } from "eve/context";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
@@ -24,6 +24,25 @@ import {
   reviewOutcome,
   settleCheckRun,
 } from "#lib/github/checks";
+import { sendLineOnce } from "#lib/github/ci/deliver";
+import type { LineDelivery } from "#lib/github/ci/deliver";
+import { startChase } from "#lib/github/ci/dispatch";
+import type { ChaseDeps } from "#lib/github/ci/dispatch";
+import { createChaseLedger, createRerunRecord } from "#lib/github/ci/ledger";
+import { chaseFailedMessage } from "#lib/github/ci/line";
+import { logChase } from "#lib/github/ci/log";
+import { questionRoute, renderQuestions } from "#lib/github/ci/question";
+import {
+  clearFailedTurn,
+  markFailedTurn,
+  replyRoute,
+  routeCompletedMessage,
+  sessionFailureRoute,
+  turnFailureRoute,
+} from "#lib/github/ci/route";
+import { withChaseSessions } from "#lib/github/ci/session";
+import { settleChase } from "#lib/github/ci/settle";
+import { readCiTurn } from "#lib/github/ci/turn";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
 import { githubCredentials } from "#lib/github/credentials";
 import {
@@ -33,9 +52,10 @@ import {
   NOT_A_REVIEW_CODE,
   UNGROUNDED_REVIEW_CODE,
 } from "#lib/github/grounding";
+import type { TurnKey } from "#lib/github/grounding";
 import {
   followUpContext,
-  isUnattendedReviewState,
+  pullRequestFromAuth,
   pullRequestUrl,
   shouldReviewPullRequest,
 } from "#lib/github/pull-requests";
@@ -44,10 +64,22 @@ import type { AnchoredReview, ParsedReview } from "#lib/github/review";
 import { renderSummary, upsertSummary } from "#lib/github/summary";
 import { releaseSandbox } from "#lib/sandbox";
 import { checkInMessage, postSlackMessage } from "#lib/slack/notify";
-import { isReviewer, REVIEWER_PRINCIPAL } from "#lib/trust";
+import type { SlackMessagePayload } from "#lib/slack/notify";
+import { isApp, isReviewer, REVIEWER_PRINCIPAL } from "#lib/trust";
 
 /** Which turns of this runtime settled an action; see `#lib/github/grounding`. */
 const grounding = createGroundingLedger();
+
+const turnKey = (ctx: SessionContext, turnId: string): TurnKey => ({
+  sessionId: ctx.session.id,
+  turnId,
+});
+
+/** Which red checks this runtime already started a turn for, and already said something about. */
+const chases = createChaseLedger();
+
+/** Which chases saw their rerun call succeed; see `#lib/github/ci/ledger`. */
+const reruns = createRerunRecord();
 
 /** A refused row must never take the review with it; the permission can go away. */
 const announce = (result: CheckResult): void => {
@@ -157,6 +189,137 @@ const reportFailedReview = async (
     logFailure("notice", { message: String(error) });
   }
 };
+
+/**
+ * Sends the maintainer one Slack line from a turn nobody is watching, once
+ * across every instance (`#lib/github/ci/deliver`), and says what became of
+ * it. The line is logged first, so a deployment with no target configured
+ * still leaves a trace of what it would have said.
+ */
+const tellMaintainer = async (
+  message: SlackMessagePayload,
+  key: string
+): Promise<LineDelivery> => {
+  logChase(`ci line: ${message.text}`);
+  const target = env.SLACK_NOTIFY_CHANNEL;
+  if (target === undefined) {
+    logChase("ci line not sent: SLACK_NOTIFY_CHANNEL is not set");
+    return { error: "SLACK_NOTIFY_CHANNEL is not set", status: "unsent" };
+  }
+  try {
+    const token = await getToken(env.SLACK_CONNECTOR, {
+      subject: { type: "app" },
+    });
+    const delivery = await sendLineOnce({
+      key,
+      now: new Date(),
+      target,
+      text: message.text,
+      token,
+    });
+    if (delivery.status === "unsent") {
+      logFailure("notice", { message: delivery.error });
+    }
+    return delivery;
+  } catch (error) {
+    logFailure("notice", { message: String(error) });
+    return { error: String(error), status: "unsent" };
+  }
+};
+
+/**
+ * The end of an app turn on this channel: Slack, and never the pull request.
+ *
+ * @remarks
+ * Nothing the turn wrote is posted. What the maintainer hears is decided from
+ * the facts the hook stamped on the turn's auth and from what GitHub shows
+ * now (`#lib/github/ci/settle`). An app turn that carries no such facts is
+ * not one this channel started, and says nothing.
+ */
+const settleChaseTurn = async (
+  channel: GitHubEventContext,
+  ctx: SessionContext
+): Promise<void> => {
+  const auth = ctx.session.auth.current;
+  const turn = readCiTurn(auth);
+  const pullRequest = pullRequestFromAuth(auth);
+  if (turn === null || pullRequest === null) {
+    logChase("ci turn ended with no chase facts; nothing sent");
+    return;
+  }
+  const { owner, repo } = channel.state;
+  const outcome = await settleChase(
+    {
+      ledger: chases,
+      request: asRequest(channel.github),
+      send: tellMaintainer,
+    },
+    { owner, pullRequest, repo, rerunAccepted: reruns.accepted(turn.key), turn }
+  );
+  logChase(
+    `ci settled ${turn.key}: ${outcome.said ? `said ${outcome.reason}, delivered=${outcome.delivered}` : outcome.reason}`
+  );
+};
+
+/**
+ * A chase turn that died, said on Slack while its auth still names the chase.
+ * The pull request hears nothing: `session.failed` reads the mark
+ * `turn.failed` left and stays quiet.
+ */
+const reportFailedChaseTurn = async (
+  auth: SessionAuthContext | null,
+  event: { readonly code?: string }
+): Promise<void> => {
+  const turn = readCiTurn(auth);
+  const pullRequest = pullRequestFromAuth(auth);
+  if (turn === null || pullRequest === null) {
+    logChase("ci turn failed with no chase facts; nothing sent");
+    return;
+  }
+  const key = `failed:${turn.key}`;
+  if (!chases.claimReport(key)) {
+    return;
+  }
+  await tellMaintainer(
+    chaseFailedMessage({ code: event.code, pullRequest }),
+    key
+  );
+};
+
+/** A chase session that died with no turn failure behind it: nothing else would say so. */
+const reportFailedChase = async (
+  channel: GitHubEventContext,
+  event: { readonly code?: string; readonly sessionId: string }
+): Promise<void> => {
+  const { owner, pullRequestNumber, repo } = channel.state;
+  if (pullRequestNumber === null) {
+    return;
+  }
+  const repository = `${owner}/${repo}`;
+  // The session is the chase's own, so its id names the chase.
+  const key = `failed:${event.sessionId}`;
+  if (!chases.claimReport(key)) {
+    return;
+  }
+  await tellMaintainer(
+    chaseFailedMessage({
+      code: event.code,
+      pullRequest: {
+        number: pullRequestNumber,
+        repository,
+        url: pullRequestUrl(repository, pullRequestNumber),
+      },
+    }),
+    key
+  );
+};
+
+/** What the chase hooks need from the inbound context. */
+const chaseDeps = (ctx: { readonly github: GitHubHandle }): ChaseDeps => ({
+  ledger: chases,
+  log: logChase,
+  request: asRequest(ctx.github),
+});
 
 /** One page; the diff in context stops at 50 files anyway. */
 const DIFF_FILES_PER_PAGE = 100;
@@ -337,13 +500,13 @@ const settleReply = async (
   const reviewing = isReviewer(ctx.session.auth.current);
   const parsed = parseReview(reply.message);
   const holdBack = whyToHoldBack({
-    grounded: grounding.isGrounded(reply.turnId),
+    grounded: grounding.isGrounded(turnKey(ctx, reply.turnId)),
     parsed: parsed !== null,
     step: reply.step,
     unattended: reviewing,
   });
   if (holdBack !== null) {
-    if (grounding.reportOnce(reply.turnId)) {
+    if (grounding.reportOnce(turnKey(ctx, reply.turnId))) {
       logFailure("review", holdBack);
       await settleCheck(channel, failedOutcome(holdBack.code));
       await reportFailedReview(channel, { code: holdBack.code });
@@ -386,31 +549,84 @@ const settleReply = async (
  *   when one never arrived. It is opened here rather than from a
  *   `turn.started` handler, which would replace the built-in that checks the
  *   repository out. The row never gates: findings settle `neutral`.
+ * - A question a turn asks is posted as a comment for a person, and dropped
+ *   for the app (`#lib/github/ci/question`), replacing eve's built-in, which
+ *   would post the app's question on the pull request.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
+ * - A message that arrives while a turn runs waits for it (`turnPolicy:
+ *   "queue"`) rather than steering into it, which would hand the running
+ *   turn the newcomer's auth: a mention during a review would take the
+ *   review's reply. Queued messages fold into one turn when their auth is
+ *   the same, so a burst of pushes is still one follow-up review.
+ * - A CI turn runs as the app in a session of its own, in task mode
+ *   (`#lib/github/ci/session`): it is offered no question, cannot park, and
+ *   shares no turn, state or history with the review or a mention.
  * - After a turn posts its reply, the channel deletes the turn's sandbox
  *   (`#lib/sandbox`). eve checks the repository out again at the start of
  *   every turn, so no later turn reads the deleted one. On Hobby, an idle
  *   sandbox uses the monthly memory quota and its snapshot uses the lifetime
  *   storage quota.
  */
-export default githubChannel({
+const pullRequestChannel = githubChannel({
   botName: BOT_NAME,
   credentials: githubCredentials,
   events: {
-    "action.result"(event) {
-      grounding.note(event.turnId, event.result);
+    "action.result"(event, _channel, ctx) {
+      // A chase reads and acts to fix CI, which says nothing about a review.
+      if (!isApp(ctx.session.auth.current)) {
+        grounding.note(turnKey(ctx, event.turnId), event.result);
+      }
+      if (event.result.kind === "tool-result") {
+        reruns.settled(ctx.session.id, {
+          callId: event.result.callId,
+          isError: event.result.isError,
+          status: event.status,
+          toolName: event.result.toolName,
+        });
+      }
+    },
+    "actions.requested"(event, _channel, ctx) {
+      const turn = readCiTurn(ctx.session.auth.current);
+      for (const action of event.actions) {
+        if (action.kind === "tool-call") {
+          reruns.requested(ctx.session.id, action, turn);
+        }
+      }
+    },
+    async "input.requested"(event, channel, ctx) {
+      if (questionRoute(ctx.session.auth.current) === "drop") {
+        // A chase is in task mode, which cannot wait for an answer: the turn
+        // fails right after this, and turn.failed tells Slack.
+        logChase(
+          `ci turn asked ${event.requests.length} question(s) on turn ${event.turnId}; nothing posted`
+        );
+        return;
+      }
+      const prompt = renderQuestions(event.requests, BOT_NAME);
+      if (prompt !== null) {
+        await postComment(channel, prompt);
+      }
     },
     async "message.completed"(event, channel, ctx) {
       if (event.finishReason === "tool-calls" || !event.message) {
         return;
       }
       try {
-        await refreshHeadSha(channel);
-        await settleReply(channel, ctx, {
-          message: event.message,
-          step: event.stepIndex,
-          turnId: event.turnId,
+        // The app never takes the reply path: it posts to the pull request.
+        // Its turn is settled at `turn.completed`, whether or not it said anything.
+        await routeCompletedMessage({
+          auth: ctx.session.auth.current,
+          chase: () => Promise.resolve(),
+          message: {
+            message: event.message,
+            step: event.stepIndex,
+            turnId: event.turnId,
+          },
+          reply: async (reply) => {
+            await refreshHeadSha(channel);
+            await settleReply(channel, ctx, reply);
+          },
         });
       } finally {
         const released = await releaseSandbox(() => ctx.getSandbox());
@@ -421,7 +637,17 @@ export default githubChannel({
     },
     async "session.failed"(event, channel) {
       logFailure("session", event);
-      if (isUnattendedReviewState(channel.state)) {
+      const route = sessionFailureRoute(channel.state);
+      if (route === "quiet") {
+        // The app's turn died, and turn.failed told Slack. Neither the
+        // session's notice nor the review's check run is the app's to write.
+        return;
+      }
+      if (route === "chase") {
+        await reportFailedChase(channel, event);
+        return;
+      }
+      if (route === "review") {
         await refreshHeadSha(channel);
         await settleCheck(channel, failedOutcome(event.code));
         await reportFailedReview(channel, event);
@@ -435,10 +661,24 @@ export default githubChannel({
         )
       );
     },
+    async "turn.completed"(event, channel, ctx) {
+      clearFailedTurn(channel.state);
+      if (replyRoute(ctx.session.auth.current) === "chase") {
+        await settleChaseTurn(channel, ctx);
+      }
+    },
     async "turn.failed"(event, channel, ctx) {
       logFailure("turn", event);
-      if (isReviewer(ctx.session.auth.current)) {
-        // The session fails next and sends the one card; see reportFailedReview.
+      const auth = ctx.session.auth.current;
+      markFailedTurn(channel.state, auth);
+      const route = turnFailureRoute(auth);
+      if (route === "chase") {
+        await reportFailedChaseTurn(auth, event);
+        return;
+      }
+      if (route === "quiet") {
+        // The review's session fails next and says it once, on Slack
+        // (reportFailedReview).
         return;
       }
       await channel.thread.post(
@@ -450,6 +690,16 @@ export default githubChannel({
       );
     },
   },
+  onCheckRun: (ctx, checkRun) =>
+    startChase(
+      {
+        authBase: defaultGitHubAuth(ctx),
+        ci: { kind: "check_run", payload: checkRun },
+        owner: ctx.repository.owner,
+        repo: ctx.repository.name,
+      },
+      chaseDeps(ctx)
+    ),
   onComment: (ctx, comment) =>
     shouldDispatchComment(comment) ? { auth: defaultGitHubAuth(ctx) } : null,
   async onPullRequest(ctx, pullRequest) {
@@ -478,4 +728,17 @@ export default githubChannel({
       title: `Security review: ${ctx.repository.fullName}#${pullRequest.pullRequestNumber}`,
     };
   },
+  onWorkflowRun: (ctx, workflowRun) =>
+    startChase(
+      {
+        authBase: defaultGitHubAuth(ctx),
+        ci: { kind: "workflow_run", payload: workflowRun },
+        owner: ctx.repository.owner,
+        repo: ctx.repository.name,
+      },
+      chaseDeps(ctx)
+    ),
+  turnPolicy: "queue",
 });
+
+export default withChaseSessions(pullRequestChannel);
