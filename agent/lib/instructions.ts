@@ -1,6 +1,10 @@
+import type { SessionAuthContext } from "eve/context";
+
+import { isReviewer } from "#lib/trust";
+
 /**
  * Which channel a system-prompt fragment belongs to, and whether the session
- * that just started should see it.
+ * or turn that just started should see it.
  */
 
 /** The product channels the agent answers on, by eve's channel name. */
@@ -42,3 +46,22 @@ export const loadsOnChannel = (
   const name = channelName(kind);
   return name === channel || !PRODUCT_CHANNELS.has(name);
 };
+
+/**
+ * Whether the engineering lead's standing orders belong in the turn that just
+ * started.
+ *
+ * @remarks
+ * Every turn carries them except the security review. That turn reads a
+ * stranger's pull request with nobody watching, and the orders tell the agent
+ * to chase, delegate, and speak to the owner: all of it work the review turn
+ * must not start. The check is per turn rather than per session because a
+ * mention from the maintainer continues the session a review opened, and the
+ * turn after the review is an attended one.
+ *
+ * It asks `isReviewer`, not `isUnattended`. The app on a schedule or a CI
+ * event is unattended too, and a scheduled digest is the turn that most needs
+ * the orders.
+ */
+export const loadsLeadOrders = (auth: SessionAuthContext | null): boolean =>
+  !isReviewer(auth);

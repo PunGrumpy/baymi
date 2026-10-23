@@ -30,6 +30,8 @@ baymiai reviewed
 
 Baymi's reviews never change your code and never run it. The reviewing agent has no shell, no file writes, and no outbound fetch. The one exception is a fix you ask for: a separate subagent bumps a vulnerable dependency in its own sandbox and opens a draft pull request, which you still decide whether to merge.
 
+Baymi is also the engineering lead for the person who installed it. It follows their open pull requests toward merge, works each in a fixed order (conflicts, then review threads, then CI), tells a flaky check from a stale base from a bug in the diff, and speaks up only for what needs them: a green pull request waiting on their merge, a question nobody answered, a conflict only the author can resolve, a blocker it cannot clear. Merging stays their click. The standing orders are in `agent/instructions/lead.ts` and the playbook is the `engineering-lead` skill. Today it does this when you ask, in Slack or on a mention. The tools that read CI results, the weekday digest, and the subagent that fixes a failing branch are not wired yet, and the review turn never carries these orders.
+
 ## What it does
 
 - **Reviews every pull request**: opened on an installed repository, for security only. Drafts wait until they are marked ready; bots are skipped. Each push gets a follow-up that updates the same summary comment, says which earlier findings the push fixed, and adds inline comments only for new ones. The head commit is checked out, so it reads the callers, the middleware, and the config around the change, not only the hunk. Findings land as inline review comments you can resolve one by one.

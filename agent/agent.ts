@@ -17,7 +17,7 @@ export default defineAgent({
   compaction: { thresholdPercent: 0.75 },
   defaultTools: false,
   description:
-    "Baymi, a security-minded companion for the repositories it is installed on",
+    "Baymi, PunGrumpy's engineering lead, who also reviews every pull request on the repositories it is installed on for security",
   limits: {
     maxOutputTokensPerSession: 250_000,
   },

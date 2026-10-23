@@ -2,7 +2,7 @@
 
 ## Project identification
 
-- **Name:** Baymi (`baymi`), a security-minded companion for one person's repositories, built on eve. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
+- **Name:** Baymi (`baymi`), one person's engineering lead and security reviewer for their repositories, built on eve. On GitHub it answers as the `baymiai` App, since `baymi` was already registered
 - **Maintainer:** PunGrumpy
 - **License:** MIT
 - **Last updated:** 2026-10-23
@@ -10,6 +10,8 @@
 ## Overview
 
 Baymi watches the repositories its GitHub App is installed on. When a pull request opens on one of them, it reads the diff and the checkout and posts one security review as a comment. When the maintainer mentions it on an issue or pull request, it answers there. In Slack it answers the maintainer about those repositories, remembers how the maintainer likes things done, and posts on its own, once and briefly, when a review finds something that should not wait.
+
+Baymi is also PunGrumpy's engineering lead. Its standing orders are a fragment, `agent/instructions/lead.ts`, that loads on every turn except an unattended review, and the playbook for chasing one pull request is the `engineering-lead` skill: triage conflicts, then review threads, then CI; classify a failing check as a flake, a stale base, or the diff's own code; speak to PunGrumpy only for what needs them; leave every merge to them. Today it does this when asked, in Slack or on a mention, with the GitHub tools it already has. The tools that read CI results, the weekday digest schedule, and a sandboxed chase subagent are separate changes, so the instructions describe what they do and name none of them.
 
 The reviewing agent never changes a repository and never runs its code. Every write beyond its reply either runs because a trusted person asked or waits on an approval card. The one exception is a fix the maintainer asks for: the `remediation` subagent bumps a vulnerable dependency in a sandbox of its own and opens a draft pull request.
 
@@ -20,9 +22,10 @@ eve discovers every capability from the filesystem under `agent/`. There is no c
 ```text
 agent/
   agent.ts                  # model configuration (defineAgent): reasoning, compaction, session output cap
-  instructions.md           # the always-on system prompt: identity, voice, read-only posture, grounding, writes and memory
+  instructions.md           # the always-on system prompt: identity (engineering lead and security reviewer), voice, read-only posture, grounding, writes and memory
   instructions/
     github.ts               # fragment for GitHub sessions: the reply is the comment, mentions, pull requests
+    lead.ts                 # fragment injected on every turn except an unattended review: the engineering lead's standing orders
     review.ts               # fragment injected on unattended review turns only: what the turn may do, what to write
     slack.ts                # fragment for Slack sessions: formatting, preferences, no checkout here
   channels/
@@ -50,11 +53,12 @@ agent/
   sandbox.ts                # Vercel Sandbox, one vCPU; marks /workspace git-safe so the channel checkout succeeds; keeps one snapshot per sandbox for one day
   skills/
     security-review/        # the review procedure, severity scale, and format; references/checklist.md lists the patterns by kind of change
+    engineering-lead/       # the playbook for chasing a pull request: triage order, failing-check classes, review bots, when to speak, the digest
   lib/                      # the only place logic lives; every module has a colocated *.test.ts
     env.ts                  # @t3-oss/env-core schema: every environment variable, validated once at module load
     model.ts                # the AI Gateway model id every agent here runs on
     trust.ts                # authorization, expressed once: classifyPrincipal puts every caller in one of five classes (maintainer, collaborator, reviewer, app, stranger); the predicates and the memory table read it
-    instructions.ts         # channelName and loadsOnChannel: which fragment a session sees
+    instructions.ts         # channelName, loadsOnChannel and loadsLeadOrders: which fragment a session or turn sees
     sandbox.ts              # releaseSandbox: the GitHub channel deletes a turn's sandbox after the reply posts, to stay inside the Hobby quotas
     failure.ts              # the notices a channel posts when a turn or session dies, and the log line that keeps the detail
     drains.ts               # fan-out for wide events: one failing destination never takes the turn with it
@@ -100,9 +104,10 @@ docs/
 | Memory | `agent/memory/file.ts` | Memory | eve's `fileMemory()` on Vercel Blob, one document under a constant `maintainer` scope. The same person is `github:<id>` on a pull request and `slack:<team>:<id>` in a DM, and a preference stated in one place holds in the other. The scope resolves to `null` for the reviewer, strangers and other people, which disables recall and the save tools there, so a diff can never write into what every later turn reads. The app, on a schedule or a CI event, gets the same document with recall only: `withMemoryAccess` (`agent/lib/memory.ts`) offers the save and remove tools to the maintainer alone |
 | Scope | `agent/tools/list_installed_repositories.ts` + `agent/lib/github/installation.ts` | Tool | There is no configured repository list. GitHub delivers webhooks and mints tokens only for repositories the App is installed on, and this tool reads that set back so the agent can say what it watches and refuse what it does not |
 | Dependency advisories | `agent/tools/list_dependency_changes.ts` + `agent/lib/github/dependencies.ts` | Tool | The agent matches no CVE itself. When the pull request's head has a root `bun.lock` or `package-lock.json`, the tool compares it at the base and the head and asks GitHub's global advisory database about the added versions, each advisory applied through the range that holds the version. GitHub's dependency review is the fallback, because the dependency graph does not parse `bun.lock` and is off on most of these repositories. All of it stays inside GitHub's API with the installation token the agent already holds, so the agent fetches no URL. The review decides from the checkout whether the code reaches the vulnerable function. When neither source answers, the tool says `available: false`, and the review goes on without it |
+| Engineering lead | `agent/instructions/lead.ts` + `loadsLeadOrders` in `agent/lib/instructions.ts` + the `engineering-lead` skill | Instruction fragment (dynamic) + skill | The orders (scope, the loop, when to speak, what it may do, how to write) are system instructions resolved at `turn.started` for every turn except the security review (`isReviewer`), so the app's own scheduled turns carry them. The check is per turn because a mention from the maintainer continues the session a review opened, and that turn is attended. The review turn never sees them, and `review.ts` is unchanged. The skill is loaded on demand and holds the triage order, the failing-check classes (flake or infrastructure gets one rerun, a stale base is reported, the diff's own code gets a fix), how to treat review-bot findings, the digest shape, and the write rules. Merging, approving, closing and commenting on someone else's behalf stay out of reach: the lead reports a ready pull request and the maintainer clicks. No tool or schedule backs it yet |
 | Remediation | `agent/subagents/remediation/` + `agent/lib/remediation/` + `mayRemediate` in `agent/lib/trust.ts` | Subagent (dynamic) | A person asks Baymi to fix a vulnerable package, and the root hands it to `remediation`, a declared subagent with its own tools and sandbox. `prepare_checkout` resolves the task from GitHub in the app runtime: the default branch's head, the versions the SBOM lists, the global advisories against them, and the version that clears them. It writes the archive into the sandbox and the task into durable state. The model bumps the package with lifecycle scripts off. `run_checks` runs the install and the project's checks with fixed commands and records the exit codes with a digest of the change. `submit_fix` pushes a `baymi/` branch through the Git Data API and opens a draft pull request headed verified or unverified mitigation, then deletes the sandbox. The token never enters the sandbox, and the repository and commit come from state, never from the model. `docs/remediation.md` has the design |
 | GitHub access | `agent/extensions/github.ts` + `agent/lib/github/tools.ts` + `agent/lib/github/approval.ts` | Extension | Eleven tools under the `github` namespace: seven reads and four writes. `addIssueComment`, `addPullRequestComment`, and `replyToReviewComment` run uncarded for a trusted person and are refused on an unattended turn; `createIssue` asks on a card. The review itself is not a tool: the channel submits it with a fixed `COMMENT` event, so nothing mounted can approve or request changes, edit a file, label, assign, or close |
-| Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model is the AI Gateway id in `agent/lib/model.ts`, shared with the remediation subagent, and the deployment's OIDC token authenticates it. Reasoning stays high because a review is one long careful read. The root prompt is always on. Fragments resolve at `session.started` and load only on their own channel, and all of them load on the HTTP route, which exists to exercise the others |
+| Agent runtime | `agent/agent.ts` + `instructions.md` + `instructions/` | Agent | The model is the AI Gateway id in `agent/lib/model.ts`, shared with the remediation subagent, and the deployment's OIDC token authenticates it. Reasoning stays high because a review is one long careful read. The root prompt is always on. Channel fragments resolve at `session.started` and load only on their own channel, and all of them load on the HTTP route, which exists to exercise the others. `review.ts` and `lead.ts` resolve at `turn.started` on opposite sides of `isReviewer` |
 | Telemetry | `agent/hooks/evlog.ts` + `agent/lib/drains.ts` | Hook | One `baymi_turn` event per turn: identity, channel, tokens, tools, outcome, never content. It is the per-turn record of what reviews cost in tokens; the gateway's own spend report has the dollars |
 
 ## Why it is read-only
