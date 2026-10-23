@@ -6,7 +6,7 @@ import type {
   GitHubJsonObject,
 } from "eve/channels/github";
 import { defaultGitHubAuth, githubChannel } from "eve/channels/github";
-import type { SessionContext } from "eve/context";
+import type { SessionAuthContext, SessionContext } from "eve/context";
 
 import { env } from "#lib/env";
 import { failureNotice, logFailure } from "#lib/failure";
@@ -31,6 +31,8 @@ import { chaseFailedMessage } from "#lib/github/ci/line";
 import { logChase } from "#lib/github/ci/log";
 import { questionRoute, renderQuestions } from "#lib/github/ci/question";
 import {
+  clearFailedTurn,
+  markFailedTurn,
   replyRoute,
   routeCompletedMessage,
   sessionFailureRoute,
@@ -247,7 +249,28 @@ const settleChaseTurn = async (
   );
 };
 
-/** A chase whose session died: the one case where the app has nothing else to say it with. */
+/**
+ * A chase turn that died, said on Slack while its auth still names the chase.
+ * The pull request hears nothing: `session.failed` reads the mark
+ * `turn.failed` left and stays quiet.
+ */
+const reportFailedChaseTurn = async (
+  auth: SessionAuthContext | null,
+  event: { readonly code?: string }
+): Promise<void> => {
+  const turn = readCiTurn(auth);
+  const pullRequest = pullRequestFromAuth(auth);
+  if (turn === null || pullRequest === null) {
+    logChase("ci turn failed with no chase facts; nothing sent");
+    return;
+  }
+  if (!chases.claimReport(`failed:${turn.key}`)) {
+    return;
+  }
+  await tellMaintainer(chaseFailedMessage({ code: event.code, pullRequest }));
+};
+
+/** A chase session that died with no turn failure behind it: nothing else would say so. */
 const reportFailedChase = async (
   channel: GitHubEventContext,
   event: { readonly code?: string }
@@ -585,6 +608,11 @@ const pullRequestChannel = githubChannel({
     async "session.failed"(event, channel) {
       logFailure("session", event);
       const route = sessionFailureRoute(channel.state);
+      if (route === "quiet") {
+        // The app's turn died, and turn.failed told Slack. Neither the
+        // session's notice nor the review's check run is the app's to write.
+        return;
+      }
       if (route === "chase") {
         await reportFailedChase(channel, event);
         return;
@@ -604,15 +632,23 @@ const pullRequestChannel = githubChannel({
       );
     },
     async "turn.completed"(event, channel, ctx) {
+      clearFailedTurn(channel.state);
       if (replyRoute(ctx.session.auth.current) === "chase") {
         await settleChaseTurn(channel, ctx, event.turnId);
       }
     },
     async "turn.failed"(event, channel, ctx) {
       logFailure("turn", event);
-      if (turnFailureRoute(ctx.session.auth.current) === "quiet") {
-        // The session fails next and says it once, on Slack: the review's
-        // card (reportFailedReview) or the chase's line (reportFailedChase).
+      const auth = ctx.session.auth.current;
+      markFailedTurn(channel.state, auth);
+      const route = turnFailureRoute(auth);
+      if (route === "chase") {
+        await reportFailedChaseTurn(auth, event);
+        return;
+      }
+      if (route === "quiet") {
+        // The review's session fails next and says it once, on Slack
+        // (reportFailedReview).
         return;
       }
       await channel.thread.post(
