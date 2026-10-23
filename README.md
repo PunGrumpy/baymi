@@ -130,7 +130,7 @@ env $(grep -v '^#' .env | grep -v '^$' | xargs) bun x eve info
 
 `vercel env pull` writes the `VERCEL_OIDC_TOKEN` the gateway needs locally into `.env.local`. It expires, so pull again when the model answers 401.
 
-`bun run validate` typechecks and runs discovery together. `bun run test` covers the logic under `agent/lib/`. `bun run eval` scores the agent against the live model and spends gateway credit. `bun scripts/review-bench.ts <model>...` counts how many planted flaws a model finds, which is how to compare one before changing `agent/lib/model.ts`.
+`bun run validate` typechecks and runs discovery together. `bun run test` covers the logic under `agent/lib/`. `bun run eval` scores the agent against the live model and spends gateway credit: every eval is tagged `fast`, and `--tag lead` runs only the ones that pin the engineering lead (quiet when healthy, never merges, Thai to the owner, a memory round trip). `bun scripts/review-bench.ts <model>...` counts how many planted flaws a model finds, which is how to compare one before changing `agent/lib/model.ts`.
 
 ## Where the code lives
 
