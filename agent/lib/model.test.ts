@@ -5,7 +5,6 @@ import {
   LEAD_MODEL,
   LEAD_MODEL_ID,
   LEAD_MODEL_OPTIONS,
-  WORKER_MODEL,
 } from "#lib/model";
 
 describe("model", () => {
@@ -31,12 +30,5 @@ describe("model", () => {
 
   it("asks Anthropic for high effort on the lead, the cheapest that passed the review eval", () => {
     expect(LEAD_MODEL_OPTIONS.providerOptions.anthropic.effort).toBe("high");
-  });
-
-  it("keeps the worker a gateway id, because a dynamic subagent takes nothing else", () => {
-    // eve 0.62.0 rejects a provider object from a dynamic subagent, so
-    // `anthropic("claude-sonnet-5-5")` here would drop the remediation
-    // subagent at runtime (`docs/notes.md`).
-    expect(WORKER_MODEL).toBe("moonshotai/kimi-k2.7-code");
   });
 });

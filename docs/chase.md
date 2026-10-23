@@ -1,6 +1,6 @@
 # Chase
 
-Status: built, and bound to the pull request it is handed since C1b (`agent/subagents/chase/`, `agent/lib/chase/`, `agent/tools/chase_pull_request.ts`). Run live on a scratch pull request at the maintainer's request, with a local Docker sandbox: it reproduced a failing test, fixed it, passed the checks and pushed one commit, and the pull request's CI went from red to green (`docs/notes.md` has the run, its cost and the two bugs it found first). The C1b bounds ran live on a second scratch pull request (below the fix loop's description, in `docs/notes.md`). The CI turn's hand-off has unit tests but has not run live. It replaces the remediation subagent, which eve 0.62.0 never offered.
+Status: built, and bound to the pull request it is handed since C1b (`agent/subagents/chase/`, `agent/lib/chase/`, `agent/tools/chase_pull_request.ts`). Run live on a scratch pull request at the maintainer's request, with a local Docker sandbox: it reproduced a failing test, fixed it, passed the checks and pushed one commit, and the pull request's CI went from red to green (`docs/notes.md` has the run, its cost and the two bugs it found first). The C1b bounds ran live on a second scratch pull request (below the fix loop's description, in `docs/notes.md`). The CI turn's hand-off has unit tests but has not run live. It replaces an earlier subagent for dependency bumps, which eve 0.62.0 never offered (`docs/notes.md`).
 
 ## What it does
 

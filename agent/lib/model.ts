@@ -17,8 +17,9 @@ export const LEAD_MODEL_ID = "claude-opus-5-5";
  *
  * @remarks
  * It reads the diff, decides which findings are real, and decides whether to
- * hand a fix to the worker, which is the judgment the product is for, so it
- * gets the strongest model. Its effort is {@link LEAD_MODEL_OPTIONS}.
+ * hand a failing pull request to the chase subagent, which is the judgment
+ * the product is for, so it gets the strongest model. Its effort is
+ * {@link LEAD_MODEL_OPTIONS}.
  *
  * Nothing upstream counts a direct model's tokens or cost, so the agents'
  * `limits` are token limits, and the `baymi_turn` events are the record of
@@ -54,19 +55,3 @@ export const LEAD_CONTEXT_WINDOW_TOKENS = 1_000_000;
 export const LEAD_MODEL_OPTIONS = {
   providerOptions: { anthropic: { effort: "high" } },
 } satisfies AgentModelOptionsDefinition;
-
-/**
- * The worker: the remediation subagent's model, still a gateway id.
- *
- * @remarks
- * The worker is meant to be Claude Sonnet 5.5 (`claude-sonnet-5-5`), also
- * direct: its work is a long loop of shell commands, edits and check runs
- * whose pass or fail comes from `run_checks`, not from the model's opinion,
- * so it does not need the lead's judgment and costs about half as much per
- * token. It is not yet, because eve 0.62.0 refuses a provider object from a
- * dynamic subagent, and only a string id is accepted there, which routes
- * through AI Gateway (`docs/notes.md`). Until remediation is restructured
- * this stays the id it has always had, so nothing about that subagent
- * changes.
- */
-export const WORKER_MODEL = "moonshotai/kimi-k2.7-code";
