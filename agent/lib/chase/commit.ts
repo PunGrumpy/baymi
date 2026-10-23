@@ -151,6 +151,19 @@ export const createCommits = async (input: {
   return shas;
 };
 
+/**
+ * A branch name as the path segments of a ref URL.
+ *
+ * @remarks
+ * Git allows `#`, `?`, `%` and a space in a branch name. Unencoded, a head
+ * named `main#x` makes the URL `.../refs/heads/main#x`, whose path is
+ * `.../refs/heads/main` and whose `#x` is a fragment: the request would move
+ * `main`. Each segment is encoded; the slashes between them stay, because
+ * the ref endpoint takes `feat/thing` as two segments.
+ */
+const refPath = (branch: string): string =>
+  branch.split("/").map(encodeURIComponent).join("/");
+
 export type FastForward =
   | { readonly ok: true }
   | { readonly ok: false; readonly status: number };
@@ -162,7 +175,7 @@ export type FastForward =
  * `force: false` is GitHub's own guard: it answers 422 when `sha` does not
  * descend from the branch's head, which is also what a branch that moved
  * since the chase read it looks like. A protected branch answers 422 or 403.
- * The caller decides what a refusal means, so this reports the status
+ * The branch is encoded segment by segment (`refPath`). The caller decides what a refusal means, so this reports the status
  * instead of throwing.
  */
 export const fastForward = async (input: {
@@ -172,7 +185,7 @@ export const fastForward = async (input: {
   readonly sha: string;
 }): Promise<FastForward> => {
   const response = await input.send(
-    `/repos/${input.repository}/git/refs/heads/${input.branch}`,
+    `/repos/${input.repository}/git/refs/heads/${refPath(input.branch)}`,
     { body: { force: false, sha: input.sha }, method: "PATCH" }
   );
   return response.status === 200

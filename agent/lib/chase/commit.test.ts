@@ -127,6 +127,40 @@ describe(fastForward, () => {
   });
 });
 
+describe("fastForward's ref URL", () => {
+  const targets = (branch: string) => {
+    const send = github();
+    return fastForward({
+      branch,
+      repository: "acme/widgets",
+      send,
+      sha: "commit-5",
+    }).then(() => {
+      const [path] = send.mock.calls[0] ?? [""];
+      return new URL(path, "https://api.github.com");
+    });
+  };
+
+  it("targets the head named main#x, not main", async () => {
+    const url = await targets("main#x");
+    expect(url.pathname).toBe("/repos/acme/widgets/git/refs/heads/main%23x");
+    expect(url.hash).toBe("");
+    expect(url.search).toBe("");
+  });
+
+  it("keeps the slashes of a branch and encodes what else a name may hold", async () => {
+    const url = await targets("release/a%2Fb c?d");
+    expect(url.pathname).toBe(
+      "/repos/acme/widgets/git/refs/heads/release/a%252Fb%20c%3Fd"
+    );
+    expect(url.search).toBe("");
+    const deep = await targets("feat/deep/thing");
+    expect(deep.pathname).toBe(
+      "/repos/acme/widgets/git/refs/heads/feat/deep/thing"
+    );
+  });
+});
+
 const fixInput = (send: GitHubSend, branch = "baymi/chase/42-abc1234") => ({
   base: "feat/thing",
   body: "body",
