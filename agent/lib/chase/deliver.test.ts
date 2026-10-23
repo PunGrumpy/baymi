@@ -14,16 +14,26 @@ const changes = [
   { deleted: false, path: "src/math.test.ts" },
 ];
 
+const regular = (paths: readonly string[]): ReadonlyMap<string, string> =>
+  new Map(paths.map((path) => [path, "100644"]));
+
+const MODES = regular(changes.map((change) => change.path));
+
 describe(groupCommits, () => {
   it("splits the change into the commits named", () => {
     expect(
-      groupCommits(changes, [
-        { message: MESSAGE, paths: ["src/math.ts"] },
-        {
-          message: "test(math): cover a negative operand\n\nThe fix needed it.",
-          paths: ["src/math.test.ts"],
-        },
-      ])
+      groupCommits(
+        changes,
+        [
+          { message: MESSAGE, paths: ["src/math.ts"] },
+          {
+            message:
+              "test(math): cover a negative operand\n\nThe fix needed it.",
+            paths: ["src/math.test.ts"],
+          },
+        ],
+        MODES
+      )
     ).toMatchObject({
       groups: [
         { changes: [changes[0]], message: MESSAGE },
@@ -34,10 +44,14 @@ describe(groupCommits, () => {
   });
 
   it("lists every way the commits do not cover the change exactly once", () => {
-    const grouping = groupCommits(changes, [
-      { message: "Fix it", paths: ["src/math.ts", "README.md"] },
-      { message: MESSAGE, paths: ["src/math.ts"] },
-    ]);
+    const grouping = groupCommits(
+      changes,
+      [
+        { message: "Fix it", paths: ["src/math.ts", "README.md"] },
+        { message: MESSAGE, paths: ["src/math.ts"] },
+      ],
+      MODES
+    );
     expect(grouping.ok).toBeFalsy();
     expect(!grouping.ok && grouping.problems).toStrictEqual([
       expect.stringMatching(/^Commit 1: The subject is not a Conventional/u),
@@ -49,7 +63,7 @@ describe(groupCommits, () => {
   });
 
   it("refuses an empty change, a path that may not be pushed, and no commits", () => {
-    expect(groupCommits([], [])).toStrictEqual({
+    expect(groupCommits([], [], MODES)).toStrictEqual({
       ok: false,
       problems: [
         "Nothing changed in the repository.",
@@ -58,10 +72,42 @@ describe(groupCommits, () => {
     });
     const grouping = groupCommits(
       [{ deleted: false, path: "node_modules/x/index.js" }],
-      [{ message: MESSAGE, paths: ["node_modules/x/index.js"] }]
+      [{ message: MESSAGE, paths: ["node_modules/x/index.js"] }],
+      regular(["node_modules/x/index.js"])
     );
     expect(!grouping.ok && grouping.problems).toStrictEqual([
       "node_modules/x/index.js may not be pushed.",
+    ]);
+  });
+
+  it("refuses a symlink in the change set", () => {
+    const linked = [...changes, { deleted: false, path: "docs/leak-file" }];
+    const grouping = groupCommits(
+      linked,
+      [{ message: MESSAGE, paths: linked.map((change) => change.path) }],
+      new Map([...MODES, ["docs/leak-file", "120000"]])
+    );
+    expect(grouping.ok).toBeFalsy();
+    expect(!grouping.ok && grouping.problems).toStrictEqual([
+      "docs/leak-file is a symlink (mode 120000); a chase pushes regular files only.",
+    ]);
+  });
+
+  it("refuses any change under .github/workflows, a deletion included", () => {
+    const touched = [
+      ...changes,
+      { deleted: false, path: ".github/workflows/ci.yml" },
+      { deleted: true, path: ".github/workflows/old.yml" },
+    ];
+    const grouping = groupCommits(
+      touched,
+      [{ message: MESSAGE, paths: touched.map((change) => change.path) }],
+      regular(touched.map((change) => change.path))
+    );
+    expect(grouping.ok).toBeFalsy();
+    expect(!grouping.ok && grouping.problems).toStrictEqual([
+      ".github/workflows/ci.yml is under .github/workflows, which a chase never changes.",
+      ".github/workflows/old.yml is under .github/workflows, which a chase never changes.",
     ]);
   });
 });

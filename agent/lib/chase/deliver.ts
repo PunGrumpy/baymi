@@ -16,7 +16,11 @@ import type { CommitPlan, GitHubSend } from "#lib/chase/commit";
 import { commitMessageProblems } from "#lib/chase/message";
 import type { ChaseCheck, ChaseResult } from "#lib/chase/result";
 import type { ChaseCheckout } from "#lib/chase/state";
-import { isPushablePath, MAX_CHANGED_FILES } from "#lib/chase/workspace";
+import {
+  MAX_CHANGED_FILES,
+  modeProblems,
+  pathProblem,
+} from "#lib/chase/workspace";
 
 /**
  * From a verified change in the sandbox to commits on GitHub: which files go
@@ -50,12 +54,14 @@ export type Grouping =
 /**
  * Splits the change into the requested commits, or lists everything wrong
  * with the request: a bad message, a path that did not change, a path in two
- * commits, a changed path in none, a path that may not be pushed, or a
- * change too large for a fix.
+ * commits, a changed path in none, a path that may not be pushed (outside the
+ * repository, under `.github/workflows`), a file that is not a regular one, or
+ * a change too large for a fix. `modes` is the index's mode for each path.
  */
 export const groupCommits = (
   changes: readonly ChangedPath[],
-  requested: readonly CommitRequest[]
+  requested: readonly CommitRequest[],
+  modes: ReadonlyMap<string, string>
 ): Grouping => {
   const problems: string[] = [];
   if (changes.length === 0) {
@@ -67,10 +73,12 @@ export const groupCommits = (
     );
   }
   for (const change of changes) {
-    if (!isPushablePath(change.path)) {
-      problems.push(`${change.path} may not be pushed.`);
+    const problem = pathProblem(change.path);
+    if (problem !== null) {
+      problems.push(problem);
     }
   }
+  problems.push(...modeProblems(changes, modes));
   const byPath = new Map(changes.map((change) => [change.path, change]));
   const claimed = new Map<string, number>();
   for (const [index, commit] of requested.entries()) {

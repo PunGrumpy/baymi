@@ -15,6 +15,7 @@ import type { ChaseResult } from "#lib/chase/result";
 import { chaseState, endChase } from "#lib/chase/state";
 import {
   CHANGES_COMMAND,
+  commitMode,
   decodeListing,
   DIGEST_COMMAND,
   MODES_COMMAND,
@@ -75,7 +76,14 @@ export default defineTool({
       };
     }
     const changes = parseNameStatus(decodeListing(listed.stdout));
-    const grouping = groupCommits(changes, commits);
+    const staged = await sandbox.run({ command: MODES_COMMAND });
+    if (staged.exitCode !== 0) {
+      return {
+        refused: `Reading the file modes failed: ${staged.stderr.trim()}. Call stop_chase with this reason.`,
+      };
+    }
+    const modes = parseModes(decodeListing(staged.stdout));
+    const grouping = groupCommits(changes, commits, modes);
     if (!grouping.ok) {
       return { problems: grouping.problems, refused: "Nothing was pushed." };
     }
@@ -92,20 +100,13 @@ export default defineTool({
           "The fix is not verified, so nothing was pushed. Run run_checks after your last edit, or call stop_chase.",
       };
     }
-    const staged = await sandbox.run({ command: MODES_COMMAND });
-    if (staged.exitCode !== 0) {
-      return {
-        refused: `Reading the file modes failed: ${staged.stderr.trim()}. Call stop_chase with this reason.`,
-      };
-    }
-    const modes = parseModes(decodeListing(staged.stdout));
     const read = async (change: ChangedPath): Promise<CommitFile> => {
       const bytes = change.deleted
         ? null
         : await sandbox.readBinaryFile({ path: `${REPO_DIR}/${change.path}` });
       return {
         content: bytes === null ? null : Buffer.from(bytes).toString("base64"),
-        mode: modes.get(change.path) ?? "100644",
+        mode: commitMode(modes, change.path),
         path: change.path,
       };
     };
