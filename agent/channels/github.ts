@@ -29,6 +29,7 @@ import type { ChaseDeps } from "#lib/github/ci/dispatch";
 import { createChaseLedger, createRerunRecord } from "#lib/github/ci/ledger";
 import { chaseFailedMessage } from "#lib/github/ci/line";
 import { logChase } from "#lib/github/ci/log";
+import { questionRoute, renderQuestions } from "#lib/github/ci/question";
 import {
   replyRoute,
   routeCompletedMessage,
@@ -507,6 +508,9 @@ const settleReply = async (
  *   when one never arrived. It is opened here rather than from a
  *   `turn.started` handler, which would replace the built-in that checks the
  *   repository out. The row never gates: findings settle `neutral`.
+ * - A question a turn asks is posted as a comment for a person, and dropped
+ *   for the app (`#lib/github/ci/question`), replacing eve's built-in, which
+ *   would post the app's question on the pull request.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
  * - A message that arrives while a turn runs waits for it (`turnPolicy:
@@ -535,6 +539,20 @@ const pullRequestChannel = githubChannel({
           status: event.status,
           toolName: event.result.toolName,
         });
+      }
+    },
+    async "input.requested"(event, channel, ctx) {
+      if (questionRoute(ctx.session.auth.current) === "drop") {
+        // A chase is in task mode, which cannot wait for an answer: the turn
+        // fails right after this, and turn.failed tells Slack.
+        logChase(
+          `ci turn asked ${event.requests.length} question(s) on turn ${event.turnId}; nothing posted`
+        );
+        return;
+      }
+      const prompt = renderQuestions(event.requests, BOT_NAME);
+      if (prompt !== null) {
+        await postComment(channel, prompt);
       }
     },
     async "message.completed"(event, channel, ctx) {
