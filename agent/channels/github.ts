@@ -35,6 +35,7 @@ import {
   sessionFailureRoute,
   turnFailureRoute,
 } from "#lib/github/ci/route";
+import { withChaseSessions } from "#lib/github/ci/session";
 import { settleChase } from "#lib/github/ci/settle";
 import { readCiTurn } from "#lib/github/ci/turn";
 import { BOT_NAME, shouldDispatchComment } from "#lib/github/comments";
@@ -508,13 +509,16 @@ const settleReply = async (
  *   repository out. The row never gates: findings settle `neutral`.
  * - Failures on an attended turn are posted as a short notice with an error
  *   code; failures on a review go to Slack instead (see above).
+ * - A CI turn runs as the app in a session of its own, in task mode
+ *   (`#lib/github/ci/session`): it is offered no question, cannot park, and
+ *   shares no turn, state or history with the review or a mention.
  * - After a turn posts its reply, the channel deletes the turn's sandbox
  *   (`#lib/sandbox`). eve checks the repository out again at the start of
  *   every turn, so no later turn reads the deleted one. On Hobby, an idle
  *   sandbox uses the monthly memory quota and its snapshot uses the lifetime
  *   storage quota.
  */
-export default githubChannel({
+const pullRequestChannel = githubChannel({
   botName: BOT_NAME,
   credentials: githubCredentials,
   events: {
@@ -646,3 +650,5 @@ export default githubChannel({
       chaseDeps(ctx)
     ),
 });
+
+export default withChaseSessions(pullRequestChannel);
