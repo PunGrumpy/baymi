@@ -164,6 +164,13 @@ describe("the GitHub channel's reply path", () => {
     );
   });
 
+  it("hands the router the session's own auth", () => {
+    const route = callSpan(config, "routeCompletedMessage");
+    expect(config.slice(route.start, route.end)).toMatch(
+      /\bauth:\s*ctx\.session\.auth\.current\b/u
+    );
+  });
+
   it("is the export eve loads, wrapped so the app gets its own session", () => {
     expect(SOURCE).toMatch(
       /^export default withChaseSessions\(pullRequestChannel\);$/mu
@@ -172,6 +179,23 @@ describe("the GitHub channel's reply path", () => {
 });
 
 describe("the channel's other writes to a pull request", () => {
+  it("posts a comment only from the reply path and the person's question", () => {
+    const outside = [...all]
+      .filter(([name]) => name !== CONFIG && name !== "postComment")
+      .filter(([, body]) => mentions(body, "postComment"))
+      .map(([name]) => name)
+      .filter(
+        (name) => !replyPath.has(name) && name !== "postUnattendedReview"
+      );
+    const handlers = [
+      ...config.matchAll(/^\s{4}(?:async )?"(?<event>[\w.]+)"\(/gmu),
+    ]
+      .map((match) => match.groups?.event ?? "")
+      .filter((event) => mentions(handler(config, event), "postComment"));
+    expect(outside).toStrictEqual([]);
+    expect(handlers).toStrictEqual(["input.requested"]);
+  });
+
   it("drops the app's question before anything is posted", () => {
     const body = handler(config, "input.requested");
     const drop = body.indexOf(
